@@ -376,7 +376,7 @@ function bind(el, final) {
 /* =========================================================
    Match flow
    ========================================================= */
-const keys = {}; const joy = { id: null, ox: 0, oy: 0, dx: 0, dy: 0, t0: 0, moved: false };
+const keys = {}; const joy = { aim: false, id: null, ox: 0, oy: 0, dx: 0, dy: 0, t0: 0, moved: false };
 function startMatch(g) {
   const H = LG.teams[g.h], Aw = LG.teams[g.a], side = g.h === LG.user ? 'home' : 'away';
   M = new Match(H, Aw, { userSide: side, playoff: LG.phase === 'playoffs' }); M.gm = g; M.handled = false; paused = false;
@@ -413,20 +413,34 @@ function syncGameUI() {
   }
   ab.hidden = !label; if (label) ab.textContent = label;
 }
+const PLAY_INFO = {
+  pass_short: ['Quick Slants', 'M8 36 L8 22 L22 14 M52 36 L52 22 L38 14 M17 36 L17 28 L24 28 M40 36 L40 30 L47 30'],
+  pass_mid: ['Crossers', 'M8 36 L8 18 L34 18 M52 36 L52 22 L24 22 M17 36 L17 14 L30 8 M40 36 L40 26 L46 20'],
+  pass_deep: ['Bombs Away', 'M8 36 L8 4 M52 36 L52 20 L38 4 M17 36 L17 20 L28 4 M40 36 L40 24'],
+  run_in: ['Dive', 'M30 38 L30 22 L30 6'],
+  run_out: ['Sweep', 'M30 38 L36 36 L46 28 L52 8'],
+  run_draw: ['Draw', 'M30 38 L30 33 L22 30 M22 30 L30 22 L30 6'],
+};
+function playCard(k) {
+  const [name, path] = PLAY_INFO[k], pass = k.startsWith('pass'), col = pass ? '#ffe14a' : '#4aa3ff';
+  const svg = `<svg viewBox="0 0 60 44" preserveAspectRatio="none" width="100%" height="40"><rect width="60" height="44" fill="#1d5a24"/><path d="M0 36H60" stroke="#fff" stroke-width=".7" opacity=".6"/>${[18, 24, 30, 36, 42].map(x => `<circle cx="${x}" cy="40" r="1.8" fill="#ddd"/>`).join('')}<circle cx="30" cy="43" r="1.6" fill="#fff"/><path d="${path}" fill="none" stroke="${col}" stroke-width="1.6" vector-effect="non-scaling-stroke"/><circle cx="30" cy="40" r="1.6" fill="#ff5d5d"/></svg>`;
+  return `<button class="pcard ${pass ? 'pp' : 'rr'}" data-g="${k}">${svg}<span>${name}</span></button>`;
+}
 function callPanel(side) {
   const m = M, sit = `${m.downText()} at ${m.spotText()} · ${m.qText()} ${m.clockText()} · ${m.team.home.abbr} ${m.score.home} - ${m.team.away.abbr} ${m.score.away}`;
   if (side === 'off') {
     const fourth = m.down === 4, ytg = m.ytg();
-    const plays = [['run_in', 'Run In'], ['run_out', 'Run Out'], ['pass_short', 'Short'], ['pass_mid', 'Medium'], ['pass_deep', 'Deep']];
     return `<div class="callp"><div class="sit">${sit}</div>
-    ${fourth ? `<div class="btns"><button class="pri" data-g="punt">Punt</button><button class="pri" data-g="fg" ${ytg + 17 > 62 ? 'disabled' : ''}>FG (${ytg + 17}y)</button></div><div class="dim" style="text-align:center">…or go for it:</div>` : ''}
-    <div class="btns">${plays.map(([k, l]) => `<button data-g="${k}">${l}</button>`).join('')}</div>
+    ${fourth ? `<div class="btns"><button class="pri" data-g="punt">Punt</button><button class="pri" data-g="fg" ${ytg + 17 > 62 ? 'disabled' : ''}>Field goal (${ytg + 17}y)</button></div><div class="dim" style="text-align:center">…or go for it:</div>` : ''}
+    <div class="plays"><div class="lab">PASS</div>${['pass_short', 'pass_mid', 'pass_deep'].map(playCard).join('')}<div class="lab">RUN</div>${['run_in', 'run_out', 'run_draw'].map(playCard).join('')}</div>
     <div class="btns"><button data-g="kneel">Kneel</button><button data-g="subs">Subs / Depth</button></div></div>`;
   }
   return `<div class="callp"><div class="sit">DEFENSE · ${sit}</div><div class="btns">
     <button data-g="d:base">Base</button><button data-g="d:blitz">Blitz</button><button data-g="d:zone">Zone</button><button data-g="d:run_stop">Stop run</button><button data-g="subs">Subs</button></div>
-    <div class="dim" style="text-align:center;font-size:.9em">You control the highlighted defender. Tap a defender to take over. Tap a defender to take over; drag to move.</div></div>`;
+    <div class="dim" style="text-align:center;font-size:.9em">You control the highlighted defender. Tap a defender to take over; drag to move.</div></div>`;
 }
+$('#callUI').addEventListener('pointerover', e => { const b = e.target.closest('.pcard'); if (b && M && M.callSide() === 'off') M.previewCall(b.dataset.g); });
+$('#callUI').addEventListener('focusin', e => { const b = e.target.closest('.pcard'); if (b && M) M.previewCall(b.dataset.g); });
 $('#callUI').addEventListener('click', e => {
   const b = e.target.closest('[data-g]'); if (!b || !M) return; const g = b.dataset.g;
   if (g === 'subs') return openSubs();
@@ -457,11 +471,15 @@ stage.addEventListener('pointerdown', e => {
   if (!M || e.target.closest('button') || e.target.closest('.callp')) return;
   const [cx, cy] = toCanvas(e);
   if (M.phase === 'fgaim') { fgPtr = e.pointerId; stage.setPointerCapture(e.pointerId); M.fgStart(cx, cy); return; }
-  if (joy.id === null) { joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.t0 = performance.now(); joy.moved = false; joy.sx = cx; joy.sy = cy; stage.setPointerCapture(e.pointerId); }
+  if (M.canPass() && joy.id === null) { const r = M.nearestRec(cx, cy, 36); if (r !== null) { joy.id = e.pointerId; joy.aim = true; M.aimRec = r; stage.setPointerCapture(e.pointerId); return; } }
+  if (joy.id === null) { joy.aim = false; joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.t0 = performance.now(); joy.moved = false; joy.sx = cx; joy.sy = cy; stage.setPointerCapture(e.pointerId); }
   else M.tapAt(cx, cy);
 });
 stage.addEventListener('pointermove', e => {
   if (e.pointerId === fgPtr && M) { const [cx, cy] = toCanvas(e); M.fgMove(cx, cy); return; }
+  if (M && M.canPass() && (e.pointerType === 'mouse' || (joy.aim && e.pointerId === joy.id))) { const [cx, cy] = toCanvas(e); const r = M.nearestRec(cx, cy, joy.aim ? 48 : 28); M.aimRec = r; if (joy.aim) return; }
+  else if (M && !M.canPass()) M.aimRec = null;
+  if (joy.aim && e.pointerId === joy.id) return;
   if (e.pointerId !== joy.id) return;
   const dx = e.clientX - joy.ox, dy = e.clientY - joy.oy, r = 44, m = Math.hypot(dx, dy);
   if (m > 10 && !joy.moved) { joy.moved = true; const j = $('#joy'); const sr = stage.getBoundingClientRect(); j.style.left = (joy.ox - sr.left) + 'px'; j.style.top = (joy.oy - sr.top) + 'px'; j.hidden = false; }
@@ -470,6 +488,7 @@ stage.addEventListener('pointermove', e => {
 const endPtr = e => {
   if (e.pointerId === fgPtr) { fgPtr = null; if (M) M.fgEnd(); return; }
   if (e.pointerId !== joy.id) return;
+  if (joy.aim) { if (M && M.aimRec != null && M.canPass()) M.input.throwIdx = M.aimRec; if (M) M.aimRec = null; joy.aim = false; joy.id = null; return; }
   if (!joy.moved && performance.now() - joy.t0 < 450 && M) M.tapAt(joy.sx, joy.sy);
   joy.id = null; joy.dx = joy.dy = 0; $('#joy').hidden = true; $('#knob').style.transform = '';
 };

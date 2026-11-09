@@ -72,3 +72,9 @@ tr.inj td{color:var(--bad)}
 .sw{display:inline-block;width:18px;height:18px;border:2px solid #000;cursor:pointer;margin-right:2px}.sw.on{outline:2px solid var(--gold)}
 .prev{background:#1d3a24;border:3px solid var(--line);display:flex;justify-content:center;padding:10px}
 .prev canvas{image-rendering:pixelated;width:260px;height:300px;max-width:100%}
+
+.plays{display:grid;grid-template-columns:34px repeat(3,1fr);gap:4px;align-items:stretch}
+.plays .lab{writing-mode:vertical-rl;transform:rotate(180deg);text-align:center;color:var(--gold);font-size:.9em;align-self:center}
+.pcard{padding:3px;display:flex;flex-direction:column;gap:2px;font-size:clamp(7px,1.3vw,10px);border-width:2px;border-bottom-width:3px}
+.pcard svg{display:block;image-rendering:auto}.pcard span{text-align:center}
+.pcard.pp{border-color:#8a7a22}.pcard.rr{border-color:#2d5f9a}.pcard:hover{border-color:#fff}

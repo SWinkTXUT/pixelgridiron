@@ -13,7 +13,7 @@ const ROUTES = {
   pass_mid: { WR1: [[10, 0], [13, -5]], WR2: [[8, 0], [12, 5]], WR3: [[11, 2], [14, 6]], TE: [[6, 0], [9, -3]], RB: [[0, 5], [5, 10]] },
   pass_deep: { WR1: [[32, 1]], WR2: [[11, 0], [30, -7]], WR3: [[16, 2], [34, 7]], TE: [[8, 0], [13, -2]], RB: [[0, 5], [3, 9]] },
 };
-const CALL_NAMES = { run_in: 'Run Inside', run_out: 'Run Outside', pass_short: 'Short Pass', pass_mid: 'Medium Pass', pass_deep: 'Deep Pass', punt: 'Punt', fg: 'Field Goal', kneel: 'Kneel' };
+const CALL_NAMES = { run_in: 'Run Inside', run_out: 'Run Outside', run_draw: 'Draw', pass_short: 'Short Pass', pass_mid: 'Medium Pass', pass_deep: 'Deep Pass', punt: 'Punt', fg: 'Field Goal', kneel: 'Kneel' };
 
 class Match {
   constructor(home, away, opts) {
@@ -71,13 +71,14 @@ class Match {
   }
   toPresnap() {
     this.pl = null; this.phase = 'presnap'; this.pend = null;
-    if (this.userSide) { this.snap('pass_short', 'base', true); this.pl.preview = true; this.phase = 'presnap'; }
+    if (this.userSide) { this.previewName = null; this.snap('pass_short', 'base', true); this.pl.preview = true; this.phase = 'presnap'; }
     this.cheer.home = Math.max(0, this.cheer.home); // keep timers
     if (!this.userSide) this.autoCall();
   }
   callSide() { if (this.phase !== 'presnap' || !this.userSide) return null; return this.poss === this.userSide ? 'off' : 'def'; }
   autoCall() { this.call(this.aiOffCall(), this.aiDefCall()); }
-  aiPlay() {
+  aiPlay() { const p = this.aiPlay0(); return p === 'run_in' && this.toGo >= 4 && Math.random() < 0.25 ? 'run_draw' : p; }
+  aiPlay0() {
     const tg = this.toGo, r = Math.random();
     if (tg >= 8) return r < 0.2 ? 'run_in' : r < 0.55 ? 'pass_short' : r < 0.8 ? 'pass_mid' : 'pass_deep';
     if (tg <= 2) return r < 0.6 ? 'run_in' : r < 0.75 ? 'run_out' : r < 0.9 ? 'pass_short' : 'pass_mid';
@@ -185,9 +186,9 @@ class Match {
     // fatigue
     const onField = new Set(); [so, sd].forEach(s => POS.forEach(pos => s[pos].forEach(p => onField.add((p.real || p).id))));
     if (!preview) for (const t of [this.team.home, this.team.away]) for (const p of t.roster) p.fat = onField.has(p.id) ? Math.min(100, (p.fat || 0) + FAT_RATE[p.pos]) : Math.max(0, (p.fat || 0) - 2.5);
-    const isRun = call.startsWith('run');
+    const isRun = call.startsWith('run'), draw = call === 'run_draw';
     const pl = { off, df, d, x0, yc, call, dcall, isRun, t: 0, E: [], pairs: [], holder: null, carrier: null, ball: null, ended: false, handed: false, lock: 0, lockE: null,
-      pressure: false, think: rnd(1.5, 2.5), actCd: 0, jumpT: -9, ctrl: null, passed: false, dropX: x0 - d * 4.5, maxHold: rnd(3.0, 4.2), scr: 0 };
+      draw, pressure: false, think: rnd(1.5, 2.5), actCd: 0, jumpT: -9, ctrl: null, passed: false, dropX: x0 - d * 4.5, maxHold: rnd(3.0, 4.2), scr: 0 };
     this.pl = pl;
     const mk = (p, side, role, x, y) => {
       const e = { p, rp: p.real || p, side, role, x, y: clamp(y, 1.2, FH - 1.2), vx: 0, vy: 0, wx: 0, wy: 0, r: this.effR(p, side), spd: this.effSpd(p), stun: 0, free: false, eng: null, tcd: 0, ph: Math.random() * 6,
@@ -256,10 +257,10 @@ class Match {
       for (const b of blockers) {
         let best = null, bd = 1e9;
         for (const r of targets) { if (taken.has(r)) continue; const dd = Math.abs(r.y - b.y) + Math.abs(r.x - b.x) * 0.35; if (dd < bd) { bd = dd; best = r; } }
-        if (best) { taken.add(best); addPair(b, best, runShed(b, best), -d); }
+        if (best) { taken.add(best); addPair(b, best, draw ? passShed(b, best) : runShed(b, best), -d); }
       }
       addPair(o.wr1, q.cb1, clamp(2.4 + (o.wr1.r - q.cb1.r) / 14, 0.8, 6), -d); addPair(o.wr2, q.cb2, clamp(2.4 + (o.wr2.r - q.cb2.r) / 14, 0.8, 6), -d);
-      pl.aimY = call === 'run_in' ? yc : (Math.random() < 0.5 ? 6 : 22);
+      pl.aimY = (call === 'run_in' || draw) ? yc : (Math.random() < 0.5 ? 6 : 22);
     }
     if (preview) { this.phase = 'presnap'; return; }
     this.phase = 'play';
@@ -447,9 +448,9 @@ class Match {
     const qb = pl.qb;
     if (pl.holder === qb && !pl.ball) {
       if (pl.isRun) {
-        const mesh = { x: pl.x0 - d * 3.0, y: pl.yc + 1.2 };
-        if (!pl.handed) { this.seek(pl.rb, mesh.x, mesh.y, 1); this.seek(qb, pl.x0 - d * 3.6, pl.yc + 0.5, 0.4); }
-        if (pl.t > 0.55 && !pl.handed) { pl.handed = true; pl.holder = pl.rb; pl.rb.x = mesh.x; this.say(`${pl.rb.p.name} takes the handoff`); }
+        const dw = pl.draw; const mesh = { x: pl.x0 - d * (dw ? 5.0 : 3.0), y: pl.yc + 1.2 };
+        if (!pl.handed) { this.seek(pl.rb, mesh.x, mesh.y, 1); this.seek(qb, pl.x0 - d * (dw ? 5.6 : 3.6), pl.yc + 0.5, 0.4); }
+        if (pl.t > (dw ? 0.95 : 0.55) && !pl.handed) { pl.handed = true; pl.holder = pl.rb; pl.rb.x = mesh.x; this.say(`${pl.rb.p.name} takes the handoff`); }
       } else if (!userOff) this.aiQB(dt);
       else if (pl.t < 0.8) this.seek(qb, pl.dropX, pl.yc, 0.75);
     }
@@ -568,7 +569,7 @@ class Match {
         continue;
       }
       if (pl.isRun && !pl.handed) { // read
-        if (pl.t > (pl.dcall === 'run_stop' ? 0.2 : 0.45)) this.seek(e, pl.x0 - d * 2, pl.rb.y, 0.7);
+        if (pl.t > (pl.draw ? 0.95 : pl.dcall === 'run_stop' ? 0.2 : 0.45)) this.seek(e, pl.x0 - d * 2, pl.rb.y, 0.7);
         continue;
       }
       if (e.man) {
@@ -606,15 +607,25 @@ class Match {
     }
   }
   /* ----- ball: throws, catches ----- */
+  throwTarget(rec) {
+    const pl = this.pl, qb = pl.qb; let T = 0.5, px = rec.x, py = rec.y;
+    for (let i = 0; i < 3; i++) { const dd = Math.hypot(px - qb.x, py - qb.y); T = clamp(dd / 25, 0.35, 2.4); px = rec.x + rec.vx * T; py = rec.y + rec.vy * T; }
+    let dd = Math.hypot(px - qb.x, py - qb.y); const maxR = 26 + (qb.r - 60) * 0.5; let short = false;
+    if (dd > maxR) { px = qb.x + (px - qb.x) * maxR / dd; py = qb.y + (py - qb.y) * maxR / dd; short = true; dd = maxR; T = clamp(dd / 25, 0.35, 2.4); }
+    return { T, px, py, dd, short };
+  }
+  canPass() { const pl = this.pl; return !!(pl && this.userSide === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball && !pl.isRun); }
+  nearestRec(cx, cy, maxd) {
+    const pl = this.pl; let best = null, bd = maxd;
+    pl.recs.forEach((e, i) => { if (e.blockRb) return; const dd = Math.hypot(e.x * PX - this.cam - cx, this.y2s(e.y) - 6 - cy); if (dd < bd) { bd = dd; best = i; } });
+    return best;
+  }
+  previewCall(call) { if (this.phase !== 'presnap' || !this.userSide || this.previewName === call) return; this.previewName = call; this.snap(call, 'base', true); this.pl.preview = true; this.phase = 'presnap'; }
   throwBall(rec) {
     const pl = this.pl, qb = pl.qb, d = pl.d;
     if ((qb.x - pl.x0) * d > 0.3) { this.notice = { t: 1.2, text: 'PAST THE LINE - NO PASS' }; return; }
-    let T = 0.5, px = rec.x, py = rec.y;
-    for (let i = 0; i < 3; i++) { const dd = Math.hypot(px - qb.x, py - qb.y); T = clamp(dd / 25, 0.35, 2.4); px = rec.x + rec.vx * T; py = rec.y + rec.vy * T; }
-    let dd = Math.hypot(px - qb.x, py - qb.y);
-    const maxR = 26 + (qb.r - 60) * 0.5;
-    let short = false;
-    if (dd > maxR) { px = qb.x + (px - qb.x) * maxR / dd; py = qb.y + (py - qb.y) * maxR / dd; short = true; dd = maxR; T = clamp(dd / 25, 0.35, 2.4); }
+    let { T, px, py, dd, short } = this.throwTarget(rec);
+    this.aimRec = null;
     py = clamp(py + rnd(-1, 1) * (100 - qb.r) / 40, 0.5, FH - 0.5);
     for (const e of pl.defE) if (e.rush && (e.free || !e.eng) && dist2(e, qb) < 3.6) pl.pressure = true;
     pl.ball = { x: qb.x, y: qb.y, z: 0, t: 0, T, fx: qb.x, fy: qb.y, tx: px, ty: py, rec, dist: dd, short, away: false };
@@ -877,6 +888,20 @@ Match.prototype.draw = function (ctx) {
   // hype bars
   const bar = (x, w, v, c1, lab) => { ctx.fillStyle = '#000'; ctx.fillRect(x, CH - 12, w, 6); ctx.fillStyle = c1; ctx.fillRect(x + 1, CH - 11, Math.round((w - 2) * v / 100), 4); ctx.fillStyle = '#ccc'; ctx.font = '6px monospace'; ctx.textAlign = 'left'; ctx.fillText(lab, x, CH - 14); };
   bar(46, 80, this.hype.home, '#ffd24d', 'HYPE ' + this.team.home.abbr); bar(CW - 126, 80, this.hype.away, '#ffd24d', 'HYPE ' + this.team.away.abbr);
+  // routes / run path (where everyone is supposed to be)
+  const dots = (pts, col, endRing) => {
+    ctx.fillStyle = col;
+    for (let i = 0; i < pts.length - 1; i++) { const [x1, y1] = pts[i], [x2, y2] = pts[i + 1], L = Math.hypot(x2 - x1, y2 - y1), n = Math.max(1, Math.floor(L / 4)); for (let k = 0; k < n; k++) { const s = k / n; ctx.fillRect(x1 + (x2 - x1) * s - 0.5, y1 + (y2 - y1) * s - 0.5, 1.5, 1.5); } }
+    const [ex, ey] = pts[pts.length - 1], [px_, py_] = pts[pts.length - 2] || pts[0], a = Math.atan2(ey - py_, ex - px_);
+    ctx.beginPath(); ctx.moveTo(ex + Math.cos(a) * 4, ey + Math.sin(a) * 4); ctx.lineTo(ex + Math.cos(a + 2.4) * 3.5, ey + Math.sin(a + 2.4) * 3.5); ctx.lineTo(ex + Math.cos(a - 2.4) * 3.5, ey + Math.sin(a - 2.4) * 3.5); ctx.fill();
+    if (endRing) { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(ex, ey, 4, 2.4, 0, 0, 7); ctx.stroke(); }
+  };
+  if (pl && (this.phase === 'presnap' || (this.phase === 'play' && pl.holder === pl.qb && !pl.ball && pl.t < 6)) && (this.phase === 'presnap' ? (!this.userSide || this.poss === this.userSide) : us === pl.off)) {
+    ctx.globalAlpha = 0.9;
+    if (!pl.isRun) pl.recs.forEach(e => { if (e.blockRb || !e.route) return; const rest = e.route.slice(Math.min(e.ri, e.route.length - 1)); if (!rest.length) return; dots([[x2s(e.x), this.y2s(e.y)], ...rest.map(p => [x2s(p[0]), this.y2s(p[1])])], '#ffe14a', true); });
+    else if (pl.rb) { const d = pl.d, rb = pl.rb; const pts = [[x2s(rb.x), this.y2s(rb.y)], [x2s(pl.x0 - d * (pl.draw ? 5 : 3)), this.y2s(pl.yc + 1.2)]]; if (pl.draw) pts.push([x2s(pl.x0 - d * 1), this.y2s(pl.yc)]); pts.push([x2s(pl.x0 + d * 3), this.y2s(pl.aimY)], [x2s(pl.x0 + d * 9), this.y2s(pl.aimY + (pl.aimY - pl.yc) * 0.3)]); if (pl.holder === pl.rb || pl.handed) pts.splice(1, 1); dots(pts, '#4aa3ff', true); }
+    ctx.globalAlpha = 1;
+  }
   // entities
   const ents = [];
   if (pl) for (const e of pl.E) ents.push(e);
@@ -901,6 +926,16 @@ Match.prototype.draw = function (ctx) {
     });
   }
   if (pl && pl.ball && !pl.ball.away) { const b = pl.ball, s = clamp(b.t / b.T, 0, 1), r = 7 - 4 * s, sx = x2s(b.tx), sy = this.y2s(b.ty); ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(sx, sy, r, r * 0.55, 0, 0, 7); ctx.stroke(); ctx.strokeStyle = 'rgba(255,210,77,.9)'; ctx.beginPath(); ctx.ellipse(sx, sy, r * 0.5, r * 0.28, 0, 0, 7); ctx.stroke(); }
+  // throw arc preview (where the ball will land)
+  const arc = (fx, fy, tx, ty, dist, col, lim) => { ctx.fillStyle = col; for (let i = 1; i <= 16; i++) { const s = i / 17; if (s > lim) break; ctx.fillRect(x2s(fx + (tx - fx) * s) - 0.5, this.y2s(fy + (ty - fy) * s) - Math.sin(Math.PI * s) * (3 + dist * 0.18) * 2 - 1.5, 1.5, 1.5); } };
+  if (pl && this.canPass() && this.aimRec != null && pl.recs[this.aimRec]) {
+    const r = pl.recs[this.aimRec], tt = this.throwTarget(r), sep = this.openness(r), col = sep > 3.2 ? '#3ddc84' : sep > 2.1 ? '#ffd24d' : '#ff5d5d';
+    arc(pl.qb.x, pl.qb.y, tt.px, tt.py, tt.dd, '#fff', 1);
+    const pu = 1 + 0.15 * Math.sin(t * 10), lx = x2s(tt.px), ly = this.y2s(tt.py);
+    ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(lx, ly, 7 * pu, 3.8 * pu, 0, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.ellipse(lx, ly, 3.5, 1.9, 0, 0, 7); ctx.stroke();
+    if (tt.short) { ctx.fillStyle = '#ff5d5d'; ctx.font = 'bold 6px monospace'; ctx.textAlign = 'center'; ctx.fillText('TOO FAR', lx, ly - 8); }
+  }
+  if (pl && pl.ball && !pl.ball.away) { const b = pl.ball; arc(b.fx, b.fy, b.tx, b.ty, b.dist, 'rgba(255,255,255,.7)', 1); }
   // ball in air / kick
   const drawBall = (bx, by, z) => drawFootball(ctx, x2s(bx), this.y2s(by), z);
   if (pl && pl.ball) drawBall(pl.ball.x, pl.ball.y, pl.ball.z * 2);
