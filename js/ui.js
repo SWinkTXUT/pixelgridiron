@@ -410,7 +410,7 @@ function syncGameUI() {
   if (m.phase === 'play' && pl && pl.ctrl && m.userSide) {
     const c = pl.ctrl;
     label = (c === pl.qb && pl.holder === pl.qb && !pl.isRun && (c.x - pl.x0) * pl.d <= 0.3) ? 'THROW AWAY' : pl.holder === c ? 'JUKE / DIVE' : (pl.o.qb === c ? '' : (c.rush ? 'SWIM' : 'DIVE / JUMP'));
-  } else if (m.phase === 'fgmeter') label = 'KICK!';
+  }
   ab.hidden = !label; if (label) ab.textContent = label;
 }
 function callPanel(side) {
@@ -451,22 +451,24 @@ $('#modal').addEventListener('click', e => {
   if (e.target.id === 'autoBtn') { closeModal(); M.userSide = null; paused = false; if (M.phase === 'presnap') M.autoCall(); }
 });
 /* touch / mouse input */
-const stage = $('#stage');
+const stage = $('#stage'); let fgPtr = null;
 function toCanvas(e) { const r = $('#cv').getBoundingClientRect(); return [(e.clientX - r.left) / r.width * CW, (e.clientY - r.top) / r.height * CH]; }
 stage.addEventListener('pointerdown', e => {
   if (!M || e.target.closest('button') || e.target.closest('.callp')) return;
   const [cx, cy] = toCanvas(e);
-  if (M.phase === 'fgmeter') { M.tapAt(cx, cy); return; }
+  if (M.phase === 'fgaim') { fgPtr = e.pointerId; stage.setPointerCapture(e.pointerId); M.fgStart(cx, cy); return; }
   if (joy.id === null) { joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.t0 = performance.now(); joy.moved = false; joy.sx = cx; joy.sy = cy; stage.setPointerCapture(e.pointerId); }
   else M.tapAt(cx, cy);
 });
 stage.addEventListener('pointermove', e => {
+  if (e.pointerId === fgPtr && M) { const [cx, cy] = toCanvas(e); M.fgMove(cx, cy); return; }
   if (e.pointerId !== joy.id) return;
   const dx = e.clientX - joy.ox, dy = e.clientY - joy.oy, r = 44, m = Math.hypot(dx, dy);
   if (m > 10 && !joy.moved) { joy.moved = true; const j = $('#joy'); const sr = stage.getBoundingClientRect(); j.style.left = (joy.ox - sr.left) + 'px'; j.style.top = (joy.oy - sr.top) + 'px'; j.hidden = false; }
   if (joy.moved) { const k = Math.min(1, m / r); joy.dx = dx / (m || 1) * k; joy.dy = dy / (m || 1) * k; $('#knob').style.transform = `translate(${joy.dx * r}px,${joy.dy * r}px)`; }
 });
 const endPtr = e => {
+  if (e.pointerId === fgPtr) { fgPtr = null; if (M) M.fgEnd(); return; }
   if (e.pointerId !== joy.id) return;
   if (!joy.moved && performance.now() - joy.t0 < 450 && M) M.tapAt(joy.sx, joy.sy);
   joy.id = null; joy.dx = joy.dy = 0; $('#joy').hidden = true; $('#knob').style.transform = '';
@@ -477,11 +479,12 @@ window.addEventListener('keydown', e => {
   if (!M || $('#gameWrap').hidden) return; const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   keys[k] = true;
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(k)) e.preventDefault();
+  if (M.phase === 'fgaim' && k === ' ') { if (!e.repeat) M.fgCharge(true); return; }
   if (k === ' ' || k === 'z' || k === 'j') M.input.act = true;
   if (k >= '1' && k <= '5') M.input.throwIdx = +k - 1;
   if (k === 'p') $('#pauseBtn').click();
 });
-window.addEventListener('keyup', e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys[k] = false; });
+window.addEventListener('keyup', e => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys[k] = false; if (k === ' ' && M && M.phase === 'fgaim') M.fgCharge(false); });
 
 /* ---------- finishing a game ---------- */
 function showPostGame(m) {

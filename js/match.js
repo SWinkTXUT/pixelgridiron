@@ -129,7 +129,11 @@ class Match {
   }
   doFG() {
     const o = this.poss, d = dirOf(o), dist = this.ytg() + 17;
-    if (this.userSide === o) { this.phase = 'fgmeter'; this.fgm = { t: 0, dist }; this.setBanner(`${dist} YARD FIELD GOAL`, 1); }
+    if (this.userSide === o) {
+      const K = getStarters(this.team[o]).K[0], k = this.effR(K, o);
+      const maxD = 50 + (k - 70) * 0.45, need = clamp(0.28 + dist / 80, 0.3, 1.2) * (1 + Math.max(0, dist - maxD) * 0.02);
+      this.phase = 'fgaim'; this.fg = { dist, k, need, wind: rnd(-1, 1), aim: 0, pow: 0, drag: null, charging: false, t: 0, anim: null, label: '' };
+    }
     else this.resolveFG(rnd(-0.5, 0.5) * 0.6);
   }
   resolveFG(m) {
@@ -139,7 +143,11 @@ class Match {
     p *= 1 - 0.75 * Math.abs(m); if (Math.abs(m) < 0.12) p = Math.min(0.99, p + 0.08);
     const good = Math.random() < clamp(p, 0, 0.99);
     const tx = goalX(o) + d * 4;
-    this.kick = { t: 0, T: 1.2, fx: this.ballX - d * 7, fy: 14, tx, ty: 14 + (good ? 0 : (Math.random() < 0.5 ? -4 : 4)), h: 40, done: () => {
+    this.kick = { t: 0, T: 1.2, fx: this.ballX - d * 7, fy: 14, tx, ty: 14 + (good ? 0 : (Math.random() < 0.5 ? -4 : 4)), h: 40, done: () => this.fgDone(good, dist) };
+    this.phase = 'kick'; this.fgm = null;
+  }
+  fgDone(good, dist, label) {
+    const o = this.poss; {
       if (good) {
         this.addScore(o, 3); this.setBanner(`FIELD GOAL! ${dist} YDS`, 1.6, '#7CFC00'); this.say(`${this.team[o].abbr} FG good from ${dist}`);
         this.addHype(o, 12); this.cheer[o] = 3; this.pend = { k: 'kickoff', side: o };
@@ -150,8 +158,24 @@ class Match {
         this.giveBall(oppS(o), spot, 14);
       }
       this.clock = Math.max(0, this.clock - 6); this.afterPlay(false, 0, true);
-    } };
-    this.phase = 'kick'; this.fgm = null;
+    }
+  }
+  /* --- Retro Bowl style kick: drag up to kick, direction = aim, length = power, wind pushes the ball --- */
+  fgStart(cx, cy) { const f = this.fg; if (this.phase !== 'fgaim' || !f) return; f.drag = { x0: cx, y0: cy }; }
+  fgMove(cx, cy) { const f = this.fg; if (this.phase !== 'fgaim' || !f || !f.drag) return; f.aim = clamp((cx - f.drag.x0) / 45, -1, 1); f.pow = clamp((f.drag.y0 - cy) / 65, 0, 1.2); }
+  fgEnd() { const f = this.fg; if (this.phase !== 'fgaim' || !f || !f.drag) return; f.drag = null; if (f.pow > 0.15) this.fgKick(); else f.pow = 0; }
+  fgCharge(on) { const f = this.fg; if (this.phase !== 'fgaim' || !f) return; if (on) f.charging = true; else if (f.charging) { f.charging = false; if (f.pow > 0.15) this.fgKick(); } }
+  fgKick() {
+    const f = this.fg, o = this.poss; if (f.anim) return;
+    const over = Math.max(0, f.pow - f.need), noiseSd = (100 - f.k) / 100 * 2.0 + 0.35 + over * 3;
+    const aimYd = f.aim * 8, drift = f.wind * 4.2 * (f.dist / 45), err = gauss(0, noiseSd), L = aimYd + drift + err;
+    const powEff = f.pow + gauss(0, 0.025), short = powEff < f.need - 0.05;
+    const half = 3.08; let good = false, label;
+    if (short) label = 'SHORT!'; else if (Math.abs(L) < half - 0.3) { good = true; label = 'IT IS GOOD!'; }
+    else if (Math.abs(L) < half + 0.4) { good = Math.random() < 0.35; label = good ? 'OFF THE UPRIGHT - GOOD!' : 'OFF THE UPRIGHT!'; }
+    else label = L < 0 ? 'WIDE LEFT!' : 'WIDE RIGHT!';
+    f.anim = { t: 0, T: 1.5, aimYd, drift, err, good, label, short, shortFrac: clamp((f.need - powEff) * 3, 0.2, 1), L };
+    this.phase = 'fgfly';
   }
 
   /* ---------- snap / setup play ---------- */
@@ -244,7 +268,6 @@ class Match {
 
   /* ---------- input ---------- */
   tapAt(cx, cy) {
-    if (this.phase === 'fgmeter') { this.input.act = true; return; }
     const pl = this.pl; if (this.phase !== 'play' || !pl) return;
     const us = this.userSide; if (!us) return;
     let best = null, bd = 34;
@@ -273,10 +296,13 @@ class Match {
     else if (this.phase === 'dwell') { this.dwell -= dt; if (this.pl) this.moveAll(dt, true); if (this.dwell <= 0) this.afterDwell(); }
     else if (this.phase === 'kick') {
       const k = this.kick; k.t += dt; if (k.t >= k.T) { this.kick = null; k.done(); }
-    } else if (this.phase === 'fgmeter') {
-      const f = this.fgm; f.t += dt; f.m = Math.sin(f.t * 3.6);
-      if (this.input.act) { this.input.act = false; this.resolveFG(f.m); }
-      else if (f.t > 6) this.resolveFG(f.m);
+    } else if (this.phase === 'fgaim') {
+      const f = this.fg; f.t += dt;
+      if (!f.drag) { f.aim = clamp(f.aim + this.input.dx * dt * 0.9, -1, 1); if (f.charging) f.pow = Math.min(1.15, f.pow + dt * 0.75); }
+      if (f.t > 14) { if (f.pow < 0.3) f.pow = f.need; this.fgKick(); }
+    } else if (this.phase === 'fgfly') {
+      const a = this.fg.anim; a.t += dt;
+      if (a.t >= a.T + 0.4 && !a.done) { a.done = true; this.fgDone(a.good, this.fg.dist, a.label); this.setBanner(a.label, 1.6, a.good ? '#7CFC00' : '#ff6b6b'); this.fg = null; }
     }
     // camera
     let tx = this.ballX;
@@ -784,7 +810,48 @@ Match.prototype.buildCrowd = function () {
   g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, 0, 1520, 40); g.fillStyle = 'rgba(0,0,0,.0)';
   this.crowdC = c;
 };
+Match.prototype.drawFG = function (ctx) {
+  const f = this.fg, t = this.time, W = CW, H = CH; if (!f) return;
+  const g = ctx.createLinearGradient(0, 0, 0, 100); g.addColorStop(0, '#12183a'); g.addColorStop(0.6, '#3a3f78'); g.addColorStop(1, '#c98a5a'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, 112);
+  if (!this.crowdC) this.buildCrowd(); ctx.drawImage(this.crowdC, 0, 84, 760, 20); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 84, W, 20);
+  const gy = 112, gg = ctx.createLinearGradient(0, gy, 0, H); gg.addColorStop(0, '#2c7a34'); gg.addColorStop(1, '#1f5f27'); ctx.fillStyle = gg; ctx.fillRect(0, gy, W, H - gy);
+  for (let k = -8; k <= 8; k++) { ctx.fillStyle = k % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.06)'; ctx.beginPath(); ctx.moveTo(160 + k * 6, gy); ctx.lineTo(160 + k * 34, H); ctx.lineTo(160 + (k + 1) * 34, H); ctx.lineTo(160 + (k + 1) * 6, gy); ctx.fill(); }
+  const pxy = 420 / (f.dist + 18), hw = 3.08 * pxy, cbY = gy - 3.33 * pxy, topY = cbY - 5 * pxy;
+  ctx.fillStyle = '#ffd24d'; ctx.fillRect(160 - 1, cbY + 0, 2, gy - cbY + 3); // post
+  ctx.fillRect(160 - hw - 1, cbY, hw * 2 + 2, 2); ctx.fillRect(160 - hw - 1, topY, 2, cbY - topY); ctx.fillRect(160 + hw - 1, topY, 2, cbY - topY);
+  ctx.fillStyle = '#fff3b0'; ctx.fillRect(160 - hw - 1, topY, 1, cbY - topY); ctx.fillRect(160 + hw - 1, topY, 1, cbY - topY);
+  const sway = Math.sin(t * 4) * Math.abs(f.wind) * 1.5; ctx.fillStyle = '#e53935'; ctx.fillRect(160 - hw - 1 + sway * Math.sign(f.wind), topY - 1, 4, 2); ctx.fillRect(160 + hw - 1 + sway * Math.sign(f.wind), topY - 1, 4, 2);
+  const px0 = 160, py0 = 148;
+  // kicker
+  const col = this.cols[this.poss]; col.skin = SKINS[(getStarters(this.team[this.poss]).K[0].skin) || 2];
+  ctx.save(); ctx.translate(132, 168); ctx.scale(2, 2); drawPlayerSprite(ctx, 0, 0, 1, col, t, false, 0, '', getStarters(this.team[this.poss]).K[0].num, false); ctx.restore();
+  const a = f.anim;
+  if (!a) {
+    drawFootball(ctx, px0, py0 + 4, 0);
+    // aim guide
+    const ex = px0 + f.aim * 8 * pxy, ey = cbY; ctx.fillStyle = f.pow > 0.15 ? '#fff' : 'rgba(255,255,255,.5)';
+    for (let i = 1; i <= 12; i++) { const s = i / 13, x = px0 + (ex - px0) * s, y = py0 + (ey - py0) * s - Math.sin(Math.PI * s) * 30 * Math.max(0.4, f.pow); ctx.fillRect(Math.round(x), Math.round(y), 2 - (s > 0.6 ? 1 : 0) + 0, 2); }
+    ctx.strokeStyle = '#ffd24d'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(ex, ey, 3, 0, 7); ctx.stroke();
+    // power gauge
+    const gx = W - 26, gh = 80, gyb = 150; ctx.fillStyle = '#000'; ctx.fillRect(gx - 1, gyb - gh - 1, 12, gh + 2); ctx.fillStyle = '#222'; ctx.fillRect(gx, gyb - gh, 10, gh);
+    const pf = clamp(f.pow / 1.2, 0, 1); ctx.fillStyle = f.pow >= f.need - 0.05 ? (f.pow > f.need + 0.25 ? '#ff9f43' : '#3ddc84') : '#ff5d5d'; ctx.fillRect(gx, gyb - gh * pf, 10, gh * pf);
+    const ny = gyb - gh * (f.need / 1.2); ctx.fillStyle = '#fff'; ctx.fillRect(gx - 4, ny - 1, 18, 2); ctx.font = '6px monospace'; ctx.textAlign = 'right'; ctx.fillText('MIN', gx - 5, ny + 2); ctx.fillText('PWR', gx + 10, gyb + 8);
+    // wind
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(8, 24, 78, 22); ctx.fillStyle = '#fff'; ctx.font = 'bold 7px monospace';
+    ctx.fillText('WIND ' + Math.round(Math.abs(f.wind) * 20) + ' MPH', 12, 33); const wl = f.wind * 26; ctx.fillStyle = '#4aa3ff'; ctx.fillRect(Math.min(47, 47 + wl), 38, Math.abs(wl), 2); ctx.fillRect(47 + wl - (wl > 0 ? 3 : -1), 36, 3, 6);
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(40, H - 14, 240, 11); ctx.fillStyle = '#fff'; ctx.font = '7px monospace'; ctx.fillText('DRAG UP TO KICK · SIDEWAYS = AIM · LONGER = POWER (SPACE / ARROWS)', W / 2, H - 6);
+  } else {
+    const s = clamp(a.t / a.T, 0, 1), L = a.aimYd * s + a.drift * s * s + a.err * s;
+    const endY = a.short ? cbY + 14 + a.shortFrac * 28 : cbY - 10, bx = px0 + L * pxy, by = py0 + (endY - py0) * s - Math.sin(Math.PI * s) * 48;
+    ctx.save(); ctx.translate(bx, by); const sc = 1.6 - 1.0 * s; ctx.scale(sc, sc); drawFootball(ctx, 0, 0, 0); ctx.restore();
+    if (a.t > a.T) { ctx.fillStyle = a.good ? 'rgba(124,252,0,.18)' : 'rgba(255,60,60,.12)'; ctx.fillRect(0, 18, W, H - 18); }
+  }
+  if (a && a.t > a.T) { ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center'; const wd = ctx.measureText(a.label).width + 20; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect((W - wd) / 2, 88, wd, 24); ctx.fillStyle = a.good ? '#7CFC00' : '#ff6b6b'; ctx.fillText(a.label, W / 2, 105); }
+  ctx.fillStyle = 'rgba(0,0,0,.85)'; ctx.fillRect(0, 0, W, 18); ctx.font = 'bold 10px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.fillText(this.team.home.abbr + ' ' + this.score.home, 14, 13);
+  ctx.textAlign = 'right'; ctx.fillText(this.score.away + ' ' + this.team.away.abbr, W - 14, 13); ctx.textAlign = 'center'; ctx.fillStyle = '#ffe14a'; ctx.fillText(this.qText() + ' ' + this.clockText() + '  ·  ' + f.dist + ' YD FIELD GOAL', W / 2, 13);
+};
 Match.prototype.draw = function (ctx) {
+  if (this.phase === 'fgaim' || this.phase === 'fgfly') { ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.imageSmoothingEnabled = false; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, CW, CH); this.drawFG(ctx); return; }
   const t = this.time, cam = this.cam, pl = this.pl, us = this.userSide;
   const x2s = x => x * PX - cam;
   ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.imageSmoothingEnabled = false;
@@ -857,14 +924,6 @@ Match.prototype.draw = function (ctx) {
   if (this.notice) { ctx.fillStyle = 'rgba(160,20,20,.85)'; ctx.fillRect(0, 31, CW, 11); ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace'; ctx.fillText(this.notice.text, CW / 2, 39); }
   // hint
   if (pl && us === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball && !pl.isRun) { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(CW / 2 - 70, FY1 - 12, 140, 10); ctx.fillStyle = '#fff'; ctx.font = '7px monospace'; ctx.fillText('TAP A RECEIVER ICON TO THROW', CW / 2, FY1 - 5); }
-  // FG meter
-  if (this.phase === 'fgmeter' && this.fgm) {
-    const f = this.fgm, w = 160, x = (CW - w) / 2, y = 80;
-    ctx.fillStyle = 'rgba(0,0,0,.8)'; ctx.fillRect(x - 6, y - 14, w + 12, 40);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace'; ctx.fillText(`${f.dist} YD FIELD GOAL - TAP WHEN CENTERED`, CW / 2, y - 4);
-    ctx.fillStyle = '#7a1f1f'; ctx.fillRect(x, y, w, 12); ctx.fillStyle = '#c9a227'; ctx.fillRect(x + w * 0.3, y, w * 0.4, 12); ctx.fillStyle = '#3ddc84'; ctx.fillRect(x + w * 0.44, y, w * 0.12, 12);
-    ctx.fillStyle = '#fff'; ctx.fillRect(Math.round(x + w / 2 + (f.m || 0) * w / 2) - 1, y - 3, 3, 18);
-  }
   // banner
   if (this.banner) {
     const bn = this.banner; ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center';
