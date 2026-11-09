@@ -126,11 +126,11 @@ function portraitURL(p, team) {
 
 /* ---- in-game football player: drawn in half-pixel (device) units, ~16x29 device px ---- */
 const DIGITS = ['111101101101111', '010110010010111', '111001111100111', '111001111001111', '101101111001001', '111100111001111', '111100111101111', '111001001001001', '111101111101111', '111101111001111'];
-function drawPlayerSprite(ctx, sx, sy, f, col, t, moving, ph, state, num, ball) {
+function drawPlayerSprite(ctx, sx, sy, f, col, t, moving, ph, state, num, ball, noShadow) {
   const ox = Math.round(sx * 2) / 2, oy = Math.round(sy * 2) / 2;
   const fill = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(ox + (f > 0 ? x : -x - w) * 0.5, oy + y * 0.5, w * 0.5, h * 0.5); };
   const OUT = '#0b0e14', J = col.jersey, Jd = shade(J, -38), Jl = shade(J, 34), H = col.helmet, Hl = shade(H, 45), PN = col.pants, PNd = shade(PN, -34), SK = col.skin, SKd = shade(SK, -40);
-  fill(-8, -1, 17, 2, 'rgba(0,0,0,.28)'); fill(-6, 0, 13, 1, 'rgba(0,0,0,.22)');
+  if (!noShadow) { fill(-8, -1, 17, 2, 'rgba(0,0,0,.28)'); fill(-6, 0, 13, 1, 'rgba(0,0,0,.22)'); }
   if (state === 'down') {
     const parts = [[-9, -9, 16, 7, J], [-15, -8, 7, 4, PN], [-15, -5, 7, 2, PNd], [6, -10, 7, 7, H], [9, -7, 4, 3, SK], [-4, -9, 10, 2, Jl]];
     parts.forEach(p => fill(p[0] - 1, p[1] - 1, p[2] + 2, p[3] + 2, OUT)); parts.forEach(p => fill(p[0], p[1], p[2], p[3], p[4]));

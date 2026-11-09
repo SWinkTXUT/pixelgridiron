@@ -33,7 +33,7 @@ class Match {
     this.banner = null; this.log = []; this.pl = null; this.over = false; this.onEnd = null;
     this.cam = 0; this.time = 0; this.dwell = 0; this.pend = null; this.suddenOver = false;
     this.input = { dx: 0, dy: 0, act: false, throwIdx: -1 };
-    this.parts = []; this.fgm = null; this.kick = null; this.notice = null; this.popups = [];
+    this.parts = []; this.fx = []; this.shake = 0; this.fgm = null; this.kick = null; this.notice = null; this.popups = [];
     this.recv0 = Math.random() < 0.5 ? 'home' : 'away';
     this.crowd = []; for (let i = 0; i < 340; i++) this.crowd.push({ x: Math.random() * 760, y: 19 + Math.floor(Math.random() * 20), c: Math.random() < 0.45 ? home.c1 : Math.random() < 0.5 ? away.c1 : ['#c9c9c9', '#8a8a8a', '#d8c9a0', '#555'][ri(0, 3)] });
     for (const t of [home, away]) for (const p of t.roster) p.fat = 0;
@@ -291,6 +291,8 @@ class Match {
     for (const s of ['home', 'away']) { if (this.cheer[s] > 0) this.cheer[s] -= dt; }
     if (this.banner) { this.banner.time -= dt; if (this.banner.time <= 0) this.banner = null; }
     this.popups = this.popups.filter(p => (p.t -= dt) > 0);
+    if (this.shake > 0) this.shake -= dt; this.fx = this.fx.filter(f => (f.t += dt) < 0.5);
+    if (this.pl) this.stepFalls(dt);
     this.parts = this.parts.filter(p => { p.t -= dt; p.x += p.vx * dt; p.y += (p.scr ? p.vy * dt : 0); if (p.scr) { p.vy += 60 * dt; } else { p.z += p.vz * dt; p.vz -= 40 * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.3; } } return p.t > 0; });
     if (this.notice) { this.notice.t -= dt; if (this.notice.t <= 0) this.notice = null; }
     if (this.phase === 'play') this.updatePlay(dt);
@@ -705,6 +707,25 @@ class Match {
     this.notice = { t: 3, text: `INJURY: ${rp.pos} ${rp.name} (${rp.inj} wk${rp.inj > 1 ? 's' : ''})` }; this.say(`Injury: ${rp.name} out ${rp.inj} wks`);
   }
 
+  /* ---------- tackle animation ---------- */
+  startTackleAnim(r) {
+    const pl = this.pl, h = r.e; if (!h || (r.k !== 'tackle' && r.k !== 'sack')) return;
+    const dir = (Math.abs(h.vx) > 0.5 ? Math.sign(h.vx) : h.face) || 1;
+    h.fall = { t: -0.05, dir }; h.vx = h.vy = 0;
+    if (r.by) { r.by.fall = { t: 0, dir, lunge: true, tx: h.x - dir * 0.3, ty: h.y + 0.25 }; }
+    let n = 0;
+    for (const e of pl.E) if (e.side !== h.side && e !== r.by && !e.fall && !e.eng && Math.hypot(e.x - h.x, e.y - h.y) < 2.6 && n < 3) { e.fall = { t: -rnd(0.12, 0.32), dir, tx: h.x + rnd(-0.6, 0.6), ty: h.y + rnd(-0.7, 0.7) }; n++; }
+    this.fx.push({ x: h.x + dir * 0.4, y: h.y, t: 0 }); this.shake = r.k === 'sack' ? 0.3 : 0.14;
+    for (let i = 0; i < 10; i++) this.parts.push({ x: h.x + rnd(-0.8, 0.8), y: clamp(h.y, 0, FH), z: 1, vx: rnd(-2, 2) * 1.2 + dir * 2, vz: rnd(8, 20), t: rnd(0.5, 0.9), c: i % 3 ? '#b9a373' : '#8a7a50', sz: 1.5, scr: false });
+  }
+  stepFalls(dt) {
+    for (const e of this.pl.E) {
+      const f = e.fall; if (!f) continue; f.t += dt; e.vx = e.vy = 0;
+      if (f.t > 0 && f.t < 0.5) e.x += f.dir * (0.5 - f.t) * 2.2 * dt;
+      if (f.tx !== undefined && f.t < 0.25) { const k = Math.min(1, dt * 9); e.x += (f.tx - e.x) * k; e.y += (f.ty - e.y) * k; }
+      if (f.t > 0.3 && !f.landed) { f.landed = true; if (f.lunge) this.parts.push({ x: e.x, y: clamp(e.y, 0, FH), z: 1, vx: f.dir * 3, vz: 10, t: 0.5, c: '#b9a373', sz: 1.5, scr: false }); }
+    }
+  }
   /* ---------- end of play & scoring ---------- */
   endPlay(r) {
     const pl = this.pl; if (pl.ended) return; pl.ended = true;
@@ -759,6 +780,7 @@ class Match {
     if (this.tod) { text = 'TURNOVER ON DOWNS'; col = '#ff6b6b'; this.tod = false; }
     // clock
     if (!stopClock) this.clock = Math.max(0, this.clock - 9);
+    this.startTackleAnim(r);
     this.setBanner(text, 1.5, col);
     this.afterPlay(stopClock, 0);
   }
@@ -866,6 +888,7 @@ Match.prototype.draw = function (ctx) {
   const t = this.time, cam = this.cam, pl = this.pl, us = this.userSide;
   const x2s = x => x * PX - cam;
   ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.imageSmoothingEnabled = false;
+  if (this.shake > 0) ctx.translate(Math.round(rnd(-1, 1) * 2) / 2, Math.round(rnd(-1, 1) * 2) / 2);
   if (!this.field) { this.buildField(); this.buildCrowd(); }
   ctx.fillStyle = '#10131d'; ctx.fillRect(0, 0, CW, CH);
   const bounce = (this.cheer.home > 0 || this.cheer.away > 0) ? (Math.sin(t * 14) > 0 ? 0.5 : 0) : 0;
@@ -905,12 +928,16 @@ Match.prototype.draw = function (ctx) {
   // entities
   const ents = [];
   if (pl) for (const e of pl.E) ents.push(e);
-  ents.sort((a, b) => a.y - b.y);
+  ents.sort((a, b) => (a.y + (a.fall && a.fall.lunge ? 0.02 : 0) + (a.fall && !a.fall.lunge && a.fall.t > 0 ? 0.01 : 0)) - (b.y + (b.fall && b.fall.lunge ? 0.02 : 0) + (b.fall && !b.fall.lunge && b.fall.t > 0 ? 0.01 : 0)));
   for (const e of ents) {
     const sx = x2s(e.x); if (sx < -10 || sx > CW + 10) continue;
     const col = this.cols[e.side]; col.skin = SKINS[e.rp.skin] || SKINS[2];
     const moving = Math.hypot(e.vx, e.vy) > 0.6;
-    drawPlayerSprite(ctx, sx, this.y2s(e.y), e.face, col, t, moving, e.ph, e.down ? 'down' : '', e.rp.num, !!(pl && pl.holder === e));
+    if (e.fall) {
+      const f = e.fall, p = clamp(f.t / 0.38, 0, 1), eased = 1 - (1 - p) * (1 - p), lean = f.lunge && f.t < 0.12 ? 0.35 * (f.t / 0.12) : 0, ang = f.t < 0 ? 0 : Math.max(lean, eased * 1.5), fy = this.y2s(e.y);
+      ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(sx - 4, fy - 0.5, 9 + ang * 5, 1.5);
+      ctx.save(); ctx.translate(sx, fy + (ang > 1.2 ? 1.5 : 0)); ctx.rotate(ang * f.dir); drawPlayerSprite(ctx, 0, 0, e.face, col, t, false, e.ph, '', e.rp.num, !!(pl && pl.holder === e && ang < 0.9), true); ctx.restore();
+    } else drawPlayerSprite(ctx, sx, this.y2s(e.y), e.face, col, t, moving, e.ph, e.down ? 'down' : '', e.rp.num, !!(pl && pl.holder === e));
     if (e === pl.ctrl && this.phase === 'play') { const yy = Math.round(this.y2s(e.y)) - 19 + (Math.floor(t * 6) % 2); ctx.fillStyle = '#000'; ctx.fillRect(sx - 3, yy - 0.5, 6, 2); ctx.fillStyle = '#ffe14a'; ctx.fillRect(sx - 2.5, yy, 5, 1); ctx.fillRect(sx - 1.5, yy + 1, 3, 1); ctx.fillRect(sx - 0.5, yy + 2, 1, 1); }
   }
   // receiver icons (Retro Bowl style): green = open, yellow = tight, red = covered
@@ -941,6 +968,8 @@ Match.prototype.draw = function (ctx) {
   if (pl && pl.ball) drawBall(pl.ball.x, pl.ball.y, pl.ball.z * 2);
   if (this.kick) { const k = this.kick, s = clamp(k.t / k.T, 0, 1); drawBall(k.fx + (k.tx - k.fx) * s, k.fy + (k.ty - k.fy) * s, Math.sin(Math.PI * s) * k.h * 0.5); }
   if (this.phase === 'presnap') { drawBall(this.ballX - dirOf(this.poss) * 4.5, this.ballY, 0); }
+  for (const f of this.fx) { const k = f.t / 0.5, r = 3 + k * 9, a = 1 - k, cx = x2s(f.x), cy = this.y2s(f.y) - 9; ctx.globalAlpha = a; ctx.fillStyle = '#fff'; ctx.fillRect(cx - 0.5, cy - r, 1.5, r * 2); ctx.fillRect(cx - r, cy - 0.5, r * 2, 1.5); ctx.fillStyle = '#ffe14a'; const q = r * 0.7; for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) ctx.fillRect(cx + dx * q * 0.7 - 0.5, cy + dy * q * 0.7 - 0.5, 1.5, 1.5); }
+  ctx.globalAlpha = 1;
   for (const p of this.parts) { ctx.globalAlpha = clamp(p.t * 2, 0, 1); ctx.fillStyle = p.c; const px = p.scr ? p.x : p.x * PX - cam, py = p.scr ? p.y : this.y2s(p.y) - p.z; ctx.fillRect(px, py, p.sz, p.sz); }
   ctx.globalAlpha = 1;
   // scoreboard
@@ -962,8 +991,8 @@ Match.prototype.draw = function (ctx) {
   // banner
   if (this.banner) {
     const bn = this.banner; ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,0,0,.55)'; const wd = ctx.measureText(bn.t).width + 20; ctx.fillRect((CW - wd) / 2, 88, wd, 24);
-    ctx.fillStyle = '#000'; ctx.fillText(bn.t, CW / 2 + 1, 106); ctx.fillStyle = bn.col; ctx.fillText(bn.t, CW / 2, 105);
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; const wd = ctx.measureText(bn.t).width + 20; ctx.fillRect((CW - wd) / 2, 44, wd, 20);
+    ctx.fillStyle = '#000'; ctx.fillText(bn.t, CW / 2 + 1, 59); ctx.fillStyle = bn.col; ctx.fillText(bn.t, CW / 2, 58);
   }
   ctx.textAlign = 'left';
 };
