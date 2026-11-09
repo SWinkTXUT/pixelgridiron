@@ -27,7 +27,7 @@ input[type=color]{width:42px;height:30px;padding:0;border:2px solid var(--line);
 .nav button{padding:6px 8px;font-size:9px}
 .nav button.on{background:#b8860b;border-color:var(--gold)}
 .top{display:flex;align-items:center;gap:10px;background:var(--panel);border:3px solid var(--line);padding:8px;position:sticky;top:0;z-index:5}
-.top img{width:42px;height:54px;image-rendering:pixelated}
+.top img{width:42px;height:53px;image-rendering:auto}
 .badge{display:inline-block;width:14px;height:14px;border:2px solid #000;vertical-align:middle;margin-right:4px}
 table{width:100%;border-collapse:collapse;font-size:10px}
 th{text-align:left;color:var(--dim);font-weight:400;padding:4px;border-bottom:2px solid var(--line);background:var(--panel)}
@@ -39,13 +39,13 @@ tr.inj td{color:var(--bad)}
 .ovr{display:inline-block;min-width:26px;text-align:center;padding:2px 3px;border:2px solid #000;color:#000;font-weight:700}
 .tag{font-size:8px;padding:1px 4px;background:#2a3350;border:1px solid var(--line)}
 .teamcard{cursor:pointer;text-align:center;padding:8px;background:var(--panel);border:3px solid var(--line)}
-.teamcard:hover{border-color:var(--gold)}.teamcard img{width:44px;height:56px;image-rendering:pixelated}
+.teamcard:hover{border-color:var(--gold)}.teamcard img{width:52px;height:66px;image-rendering:auto}
 .teamcard .stripe{height:6px;margin-bottom:6px}
 .bar{height:8px;background:#000;border:1px solid var(--line)}.bar>i{display:block;height:100%;background:var(--gold)}
 .news div{padding:3px 0;border-bottom:1px dashed #263048;font-size:10px}
 .title{text-align:center;padding-top:22px}
 .title .parade{display:flex;justify-content:center;gap:10px;margin:18px 0;flex-wrap:wrap}
-.title .parade img{width:66px;height:84px;image-rendering:pixelated;animation:hop .7s infinite steps(2)}
+.title .parade img{width:78px;height:99px;image-rendering:pixelated;animation:hop .7s infinite steps(2)}
 .title .parade img:nth-child(2n){animation-delay:.2s}.title .parade img:nth-child(3n){animation-delay:.4s}
 @keyframes hop{0%{transform:translateY(0)}50%{transform:translateY(-8px)}100%{transform:translateY(0)}}
 .title button{display:block;width:min(320px,90%);margin:10px auto;font-size:12px;padding:12px}
@@ -71,4 +71,4 @@ tr.inj td{color:var(--bad)}
 .fatb{width:50px;height:6px;background:#000;border:1px solid var(--line)}.fatb>i{display:block;height:100%;background:var(--bad)}
 .sw{display:inline-block;width:18px;height:18px;border:2px solid #000;cursor:pointer;margin-right:2px}.sw.on{outline:2px solid var(--gold)}
 .prev{background:#1d3a24;border:3px solid var(--line);display:flex;justify-content:center;padding:10px}
-.prev canvas{image-rendering:pixelated;width:220px;height:260px}
+.prev canvas{image-rendering:pixelated;width:260px;height:300px;max-width:100%}

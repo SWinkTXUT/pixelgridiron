@@ -260,7 +260,7 @@ function vMascotEd(standalone) {
   return (standalone ? '<div style="padding:10px"><div class="row"><button data-a="go" data-v="title">Back</button></div>' : '') + `<h2>Mascot editor</h2>
   <div class="row"><select data-a="mTeamSel">${LG.teams.map(x => `<option value="${x.id}" ${x.id === t.id ? 'selected' : ''}>${esc(tname(x))}</option>`).join('')}</select>
   <button data-a="mRandom">Randomize</button><button class="bad" data-a="mReset">Reset to default</button><button data-a="mCheer">${UI.mCheer ? 'Show idle' : 'Show cheer'}</button></div>
-  <div class="grid2"><div class="prev"><canvas id="mcv" width="220" height="260"></canvas></div>
+  <div class="grid2"><div class="prev"><canvas id="mcv" width="260" height="300"></canvas></div>
   <div class="card"><div style="display:grid;gap:8px">
    <label>Name <input type="text" value="${esc(m.name)}" data-bind="mascot:${t.id}:name"></label>
    <label>Body <select data-bind="mascot:${t.id}:species">${opt(SPECIES, m.species, v => v[0].toUpperCase() + v.slice(1))}</select></label>
@@ -275,9 +275,9 @@ function vMascotEd(standalone) {
 function mascotLoop() {
   const cv = $('#mcv'); if (!cv) return; const ctx = cv.getContext('2d'); const t0 = performance.now();
   const tick = () => {
-    const c = $('#mcv'); if (!c) return; ctx.imageSmoothingEnabled = false; ctx.fillStyle = '#1d3a24'; ctx.fillRect(0, 0, 220, 260);
-    ctx.fillStyle = '#2e7d32'; for (let i = 0; i < 6; i++) if (i % 2) ctx.fillRect(i * 40, 0, 40, 260);
-    drawMascot(ctx, LG.teams[UI.mTeam].mascot, 110, 245, 10, (performance.now() - t0) / 1000, UI.mCheer);
+    const c = $('#mcv'); if (!c) return; ctx.imageSmoothingEnabled = false; ctx.fillStyle = '#1d3a24'; ctx.fillRect(0, 0, 260, 300);
+    ctx.fillStyle = '#2e7d32'; for (let i = 0; i < 6; i++) if (i % 2) ctx.fillRect(i * 44, 0, 44, 300);
+    drawMascot(ctx, LG.teams[UI.mTeam].mascot, 130, 288, 3, (performance.now() - t0) / 1000, UI.mCheer);
     mraf = requestAnimationFrame(tick);
   };
   tick();
@@ -409,7 +409,7 @@ function syncGameUI() {
   const ab = $('#actBtn'); let label = '';
   if (m.phase === 'play' && pl && pl.ctrl && m.userSide) {
     const c = pl.ctrl;
-    label = (c === pl.qb && pl.holder === pl.qb && !pl.isRun && (c.x - pl.x0) * pl.d <= 0.3) ? 'THROW AWAY' : pl.holder === c ? 'JUKE' : (pl.o.qb === c ? '' : (c.rush ? 'SWIM' : 'DIVE / JUMP'));
+    label = (c === pl.qb && pl.holder === pl.qb && !pl.isRun && (c.x - pl.x0) * pl.d <= 0.3) ? 'THROW AWAY' : pl.holder === c ? 'JUKE / DIVE' : (pl.o.qb === c ? '' : (c.rush ? 'SWIM' : 'DIVE / JUMP'));
   } else if (m.phase === 'fgmeter') label = 'KICK!';
   ab.hidden = !label; if (label) ab.textContent = label;
 }
@@ -425,7 +425,7 @@ function callPanel(side) {
   }
   return `<div class="callp"><div class="sit">DEFENSE · ${sit}</div><div class="btns">
     <button data-g="d:base">Base</button><button data-g="d:blitz">Blitz</button><button data-g="d:zone">Zone</button><button data-g="d:run_stop">Stop run</button><button data-g="subs">Subs</button></div>
-    <div class="dim" style="text-align:center;font-size:.9em">You control the highlighted defender. Tap a defender to take over. Drag to move.</div></div>`;
+    <div class="dim" style="text-align:center;font-size:.9em">You control the highlighted defender. Tap a defender to take over. Tap a defender to take over; drag to move.</div></div>`;
 }
 $('#callUI').addEventListener('click', e => {
   const b = e.target.closest('[data-g]'); if (!b || !M) return; const g = b.dataset.g;

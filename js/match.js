@@ -247,11 +247,12 @@ class Match {
     if (this.phase === 'fgmeter') { this.input.act = true; return; }
     const pl = this.pl; if (this.phase !== 'play' || !pl) return;
     const us = this.userSide; if (!us) return;
-    let best = null, bd = 30;
+    let best = null, bd = 34;
     if (us === pl.off && pl.holder === pl.qb && !pl.ball) {
       pl.recs.forEach((e, i) => { if (e.blockRb) return; const sx = e.x * PX - this.cam, sy = this.y2s(e.y) - 6, dd = Math.hypot(sx - cx, sy - cy); if (dd < bd) { bd = dd; best = i; } });
       if (best !== null) this.input.throwIdx = best;
-    } else {
+    } else if (pl.ctrl && pl.ctrl === pl.holder) { this.input.act = true; }
+    else {
       let be = null;
       for (const e of pl.E) if (e.side === us) { const sx = e.x * PX - this.cam, sy = this.y2s(e.y) - 6, dd = Math.hypot(sx - cx, sy - cy); if (dd < bd) { bd = dd; be = e; } }
       if (be) { pl.lock = 3; pl.lockE = be; }
@@ -379,17 +380,26 @@ class Match {
     if (beyond) pl.scr = true;
     if (inp.act && pl.actCd <= 0) {
       if (isQB) { if (!pl.ball) this.throwAway(); }
-      else if (pl.holder === c) { if (c.jkcd <= 0) { c.jk = 0.4; c.jkcd = 1.4; pl.actCd = 0.2; } }
+      else if (pl.holder === c) {
+        const opps = c.side === pl.off ? pl.defE : pl.offE; let near = 99; for (const e of opps) if (!e.down) near = Math.min(near, Math.hypot(e.x - c.x, e.y - c.y));
+        if (near < 3 && c.jkcd <= 0) { c.jk = 0.4; c.jkcd = 1.4; pl.actCd = 0.2; }
+        else if (c.dive <= 0 && c.jk <= 0) { c.dive = 0.45; c.diveEnd = pl.t + 0.45; pl.actCd = 0.5; this.notice = { t: 0.8, text: 'DIVE!' }; }
+      }
       else { c.dive = 0.35; pl.jumpT = pl.t; pl.actCd = 0.6; }
     }
     if (isQB) {
       if (inp.throwIdx >= 0 && !pl.ball) { const r = pl.recs[inp.throwIdx]; if (r && !r.blockRb) this.throwBall(r); }
-      if (mag > 0.1 || pl.t >= 0.8) { c.wx = inp.dx * c.spd * 0.62; c.wy = inp.dy * c.spd * 0.62; } return;
+      if (mag > 0.45) { c.wx = inp.dx * c.spd * 0.7; c.wy = inp.dy * c.spd * 0.7; } else if (pl.t >= 0.8) { c.wx = 0; c.wy = 0; } return;
     }
-    if (mag > 0.15) {
-      let sp = c.spd; if (c.jk > 0) sp *= 1.15; if (c.dive > 0) sp *= 1.25;
+    if (pl.holder === c) { // Retro Bowl style: ball carrier auto-runs forward; drag steers, forward drag boosts, pulling back brakes
+      const cd = c.side === pl.off ? pl.d : -pl.d, fwd = inp.dx * cd;
+      let sp = c.spd * clamp(1 + (fwd > 0 ? 0.1 * fwd : 0.4 * fwd), 0.55, 1.1); if (c.jk > 0) sp *= 1.15; if (c.dive > 0) sp *= 1.3;
+      let vx = cd * 0.95, vy = inp.dy * 0.95; const n = Math.hypot(vx, vy);
+      c.wx = vx / n * sp; c.wy = vy / n * sp;
+      if (c.dive > 0 && pl.t > (c.diveEnd || 99)) this.endTackle(c, 'tackle', null);
+    } else if (mag > 0.15) {
+      let sp = c.spd; if (c.dive > 0) sp *= 1.25;
       c.wx = inp.dx / Math.max(1, mag) * sp; c.wy = inp.dy / Math.max(1, mag) * sp;
-      if (c.eng) { /* fighting a block: pushing helps */ }
     }
   }
   /* ----- offense AI ----- */
@@ -420,8 +430,8 @@ class Match {
     // carriers (AI-steered)
     const h = pl.holder;
     if (h && h.side === pl.off && h !== qb || (h === qb && pl.isRun && pl.handed)) {
-      if (h !== pl.ctrl || Math.hypot(this.input.dx, this.input.dy) <= 0.15) this.steer(h);
-    } else if (h === qb && pl.scr) { this.steer(h); }
+      if (h !== pl.ctrl) this.steer(h);
+    } else if (h === qb && pl.scr && qb !== pl.ctrl) { this.steer(h); }
     // blockers when carrier exists
     if (h && h.side === pl.off && (h !== qb || pl.handed)) {
       for (const b of pl.offE) {
@@ -501,7 +511,7 @@ class Match {
     const blockersSide = h && h.side === pl.df ? pl.defE : pl.offE;
     if (h && h.side === pl.df) {
       // interception / fumble return: defense carries
-      if (h !== pl.ctrl || Math.hypot(this.input.dx, this.input.dy) <= 0.15) this.steer(h);
+      if (h !== pl.ctrl) this.steer(h);
       for (const b of pl.defE) {
         if (b === h || b.eng || b.stun > 0) continue;
         let tgt = null, td = 1e9;
@@ -734,6 +744,7 @@ class Match {
 }
 
 /* =============== Rendering =============== */
+Match.prototype.openness = function (e) { const pl = this.pl; let sep = 99; for (const d of pl.defE) if (!d.down) sep = Math.min(sep, Math.hypot(d.x - (e.x + e.vx * 0.3), d.y - (e.y + e.vy * 0.3))); return sep; };
 Match.prototype.buildField = function () {
   const S = 2, W = FW * PX * S, H = (FY1 - FY0) * S, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
   const yd = PX * S;
@@ -794,8 +805,8 @@ Match.prototype.draw = function (ctx) {
   ctx.fillStyle = '#1f2a1f'; ctx.fillRect(0, FY1 + 1, CW, CH - FY1);
   ctx.fillStyle = '#3a4a3a'; ctx.fillRect(0, FY1 + 1, CW, 1);
   const mh = this.team.home.mascot, ma = this.team.away.mascot;
-  if (mh) drawMascot(ctx, mh, 24, CH - 2, 1, t, this.cheer.home > 0);
-  if (ma) drawMascot(ctx, ma, CW - 24, CH - 2, 1, t + 1, this.cheer.away > 0);
+  if (mh) drawMascot(ctx, mh, 24, CH - 1, 0.5, t, this.cheer.home > 0);
+  if (ma) drawMascot(ctx, ma, CW - 24, CH - 1, 0.5, t + 1, this.cheer.away > 0);
   // hype bars
   const bar = (x, w, v, c1, lab) => { ctx.fillStyle = '#000'; ctx.fillRect(x, CH - 12, w, 6); ctx.fillStyle = c1; ctx.fillRect(x + 1, CH - 11, Math.round((w - 2) * v / 100), 4); ctx.fillStyle = '#ccc'; ctx.font = '6px monospace'; ctx.textAlign = 'left'; ctx.fillText(lab, x, CH - 14); };
   bar(46, 80, this.hype.home, '#ffd24d', 'HYPE ' + this.team.home.abbr); bar(CW - 126, 80, this.hype.away, '#ffd24d', 'HYPE ' + this.team.away.abbr);
@@ -810,11 +821,19 @@ Match.prototype.draw = function (ctx) {
     drawPlayerSprite(ctx, sx, this.y2s(e.y), e.face, col, t, moving, e.ph, e.down ? 'down' : '', e.rp.num, !!(pl && pl.holder === e));
     if (e === pl.ctrl && this.phase === 'play') { const yy = Math.round(this.y2s(e.y)) - 19 + (Math.floor(t * 6) % 2); ctx.fillStyle = '#000'; ctx.fillRect(sx - 3, yy - 0.5, 6, 2); ctx.fillStyle = '#ffe14a'; ctx.fillRect(sx - 2.5, yy, 5, 1); ctx.fillRect(sx - 1.5, yy + 1, 3, 1); ctx.fillRect(sx - 0.5, yy + 2, 1, 1); }
   }
-  // receiver numbers for user passing
-  if (pl && us === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball) {
-    ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center';
-    pl.recs.forEach((e, i) => { if (e.blockRb) return; const sx = x2s(e.x), sy = this.y2s(e.y) - 15; ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(Math.round(sx) - 4, Math.round(sy) - 7, 9, 9); ctx.fillStyle = '#ffe14a'; ctx.fillText(String(i + 1), Math.round(sx), Math.round(sy)); });
+  // receiver icons (Retro Bowl style): green = open, yellow = tight, red = covered
+  if (pl && us === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball && !pl.isRun) {
+    ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center';
+    pl.recs.forEach((e, i) => {
+      if (e.blockRb) return; const sep = this.openness(e), sx = Math.round(x2s(e.x) * 2) / 2, sy = this.y2s(e.y) - 19, col = sep > 3.2 ? '#3ddc84' : sep > 2.1 ? '#ffd24d' : '#ff5d5d';
+      const pulse = sep > 3.2 && Math.floor(t * 6) % 2 ? 1 : 0;
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(sx, sy, 5.5 + pulse * 0.5, 0, 7); ctx.fill();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(sx, sy, 4.5 + pulse * 0.5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#000'; ctx.fillText(String(i + 1), sx, sy + 2.5);
+      ctx.fillStyle = col; ctx.fillRect(sx - 1, sy + 5, 2, 1.5); ctx.fillRect(sx - 0.5, sy + 6.5, 1, 1);
+    });
   }
+  if (pl && pl.ball && !pl.ball.away) { const b = pl.ball, s = clamp(b.t / b.T, 0, 1), r = 7 - 4 * s, sx = x2s(b.tx), sy = this.y2s(b.ty); ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(sx, sy, r, r * 0.55, 0, 0, 7); ctx.stroke(); ctx.strokeStyle = 'rgba(255,210,77,.9)'; ctx.beginPath(); ctx.ellipse(sx, sy, r * 0.5, r * 0.28, 0, 0, 7); ctx.stroke(); }
   // ball in air / kick
   const drawBall = (bx, by, z) => drawFootball(ctx, x2s(bx), this.y2s(by), z);
   if (pl && pl.ball) drawBall(pl.ball.x, pl.ball.y, pl.ball.z * 2);
@@ -837,7 +856,7 @@ Match.prototype.draw = function (ctx) {
   for (const p of this.popups) { ctx.fillStyle = '#ffe14a'; ctx.font = 'bold 12px monospace'; ctx.fillText(p.text, CW / 2, 60 - (1.2 - p.t) * 12); }
   if (this.notice) { ctx.fillStyle = 'rgba(160,20,20,.85)'; ctx.fillRect(0, 31, CW, 11); ctx.fillStyle = '#fff'; ctx.font = 'bold 8px monospace'; ctx.fillText(this.notice.text, CW / 2, 39); }
   // hint
-  if (pl && us === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball && !pl.isRun) { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(CW / 2 - 70, FY1 - 12, 140, 10); ctx.fillStyle = '#fff'; ctx.font = '7px monospace'; ctx.fillText('TAP A RECEIVER TO THROW', CW / 2, FY1 - 5); }
+  if (pl && us === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball && !pl.isRun) { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(CW / 2 - 70, FY1 - 12, 140, 10); ctx.fillStyle = '#fff'; ctx.font = '7px monospace'; ctx.fillText('TAP A RECEIVER ICON TO THROW', CW / 2, FY1 - 5); }
   // FG meter
   if (this.phase === 'fgmeter' && this.fgm) {
     const f = this.fgm, w = 160, x = (CW - w) / 2, y = 80;
