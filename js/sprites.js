@@ -102,21 +102,55 @@ function portraitURL(p, team) {
   return (_imgCache[key] = c.toDataURL());
 }
 
-/* ---- in-game football player (8w x 12h), sx,sy = feet centre ---- */
-function drawPlayerSprite(ctx, sx, sy, f, col, t, moving, ph, state) {
-  sx = Math.round(sx); sy = Math.round(sy);
-  const sw = moving ? (Math.sin(t * 16 + ph) > 0 ? 1 : 0) : 0;
-  const down = state === 'down';
-  ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(sx - 3, sy - 1, 7, 2);
-  if (down) { ctx.fillStyle = col.jersey; ctx.fillRect(sx - 5, sy - 4, 9, 3); ctx.fillStyle = col.helmet; ctx.fillRect(sx + 3 * f - 1, sy - 5, 3, 3); ctx.fillStyle = col.pants; ctx.fillRect(sx - 6 * f - 1, sy - 3, 3, 2); return; }
-  ctx.fillStyle = col.pants; ctx.fillRect(sx - 2, sy - 4 + sw, 2, 4 - sw); ctx.fillRect(sx, sy - 4 + (1 - sw), 2, 4 - (1 - sw));
-  ctx.fillStyle = col.jersey; ctx.fillRect(sx - 3, sy - 8, 6, 4);
-  ctx.fillStyle = col.skin; ctx.fillRect(sx - 4, sy - 8, 1, 3); ctx.fillRect(sx + 3, sy - 8, 1, 3);
-  ctx.fillStyle = col.helmet; ctx.fillRect(sx - 2, sy - 12, 5, 4);
-  ctx.fillStyle = col.mask; ctx.fillRect(sx + (f > 0 ? 1 : -3), sy - 10, 2, 2);
-  ctx.fillStyle = col.skin; ctx.fillRect(sx + (f > 0 ? 0 : -1), sy - 9, 1, 1);
+/* ---- in-game football player: drawn in half-pixel (device) units, ~16x29 device px ---- */
+const DIGITS = ['111101101101111', '010110010010111', '111001111100111', '111001111001111', '101101111001001', '111100111001111', '111100111101111', '111001001001001', '111101111101111', '111101111001111'];
+function drawPlayerSprite(ctx, sx, sy, f, col, t, moving, ph, state, num, ball) {
+  const ox = Math.round(sx * 2) / 2, oy = Math.round(sy * 2) / 2;
+  const fill = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(ox + (f > 0 ? x : -x - w) * 0.5, oy + y * 0.5, w * 0.5, h * 0.5); };
+  const OUT = '#0b0e14', J = col.jersey, Jd = shade(J, -38), Jl = shade(J, 34), H = col.helmet, Hl = shade(H, 45), PN = col.pants, PNd = shade(PN, -34), SK = col.skin, SKd = shade(SK, -40);
+  fill(-8, -1, 17, 2, 'rgba(0,0,0,.28)'); fill(-6, 0, 13, 1, 'rgba(0,0,0,.22)');
+  if (state === 'down') {
+    const parts = [[-9, -9, 16, 7, J], [-15, -8, 7, 4, PN], [-15, -5, 7, 2, PNd], [6, -10, 7, 7, H], [9, -7, 4, 3, SK], [-4, -9, 10, 2, Jl]];
+    parts.forEach(p => fill(p[0] - 1, p[1] - 1, p[2] + 2, p[3] + 2, OUT)); parts.forEach(p => fill(p[0], p[1], p[2], p[3], p[4]));
+    fill(12, -8, 2, 4, '#ddd'); return;
+  }
+  const s = moving ? Math.sin(t * 14 + ph) : 0, sw = moving ? Math.round(s * 2) : 0, la = s > 0.5 ? 2 : 0, lb = s < -0.5 ? 2 : 0;
+  const armB = moving ? Math.round(-s * 2) : 0, armF = -armB;
+  const parts = [];
+  parts.push([-8 + (moving ? -armB : 0), -19 + armB, 3, 8, SKd, 'arm']);               // back arm
+  parts.push([-4 + sw, -9, 3, 7 - la, PNd]); parts.push([-5 + sw, -3 - la, 5, 2, '#17181c']); // back leg + cleat
+  parts.push([1 - sw, -9, 3, 7 - lb, PN]); parts.push([0 - sw, -3 - lb, 5, 2, '#222']);       // front leg
+  parts.push([-5, -12, 10, 4, PN]);                                                              // hips
+  parts.push([-5, -20, 10, 9, J]); parts.push([-6, -21, 12, 3, Jl]);                           // torso + pads
+  if (ball) { parts.push([4, -17, 5, 3, SK]); parts.push([7, -18, 7, 5, '#7a4a1d']); }
+  else parts.push([5, -19 + armF, 3, 8, SK]);
+  parts.push([-4, -29, 9, 9, H]);
+  parts.forEach(p => fill(p[0] - 1, p[1] - 1, p[2] + 2, p[3] + 2, OUT));
+  parts.forEach(p => fill(p[0], p[1], p[2], p[3], p[4]));
+  // details
+  fill(-5, -12, 10, 1, shade(J, -20)); fill(3, -18, 2, 6, Jd);                                    // belt shade, torso shade
+  fill(-4 + sw, -5 - la, 3, 1, col.stripe); fill(1 - sw, -5 - lb, 3, 1, col.stripe);             // socks
+  fill(-4 + sw, -9, 1, 5 - la, col.stripe); fill(3 - sw, -9, 1, 5 - lb, col.stripe);             // pant stripes
+  fill(-8, -19 + armB, 3, 3, J); fill(5, -19 + armF, 3, 3, J); fill(-8, -17 + armB, 3, 1, col.stripe); // sleeves
+  if (!ball) fill(5, -12 + armF, 3, 2, col.glove);
+  fill(-8, -12 + armB, 3, 2, col.glove);
+  fill(-3, -29, 7, 1, Hl); fill(-4, -28, 1, 5, Hl); fill(0, -29, 2, 7, col.stripe);                // helmet highlight + stripe
+  fill(2, -25, 3, 5, SK); fill(3, -25, 3, 1, col.mask); fill(3, -22, 3, 1, col.mask); fill(5, -25, 1, 6, col.mask); fill(3, -20, 3, 1, col.mask);
+  fill(-1, -24, 2, 2, shade(H, -50)); fill(-4, -22, 2, 3, shade(H, -25));
+  if (ball) { fill(8, -17, 4, 1, '#fff'); fill(7, -16, 1, 1, '#4a2a0d'); }
+  // number
+  if (num !== undefined && num !== null) {
+    const str = String(num), w = str.length * 4 - 1; let x0 = -Math.floor(w / 2) + 0;
+    for (const ch of str) { const d = DIGITS[+ch]; for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (d[r * 3 + c] === '1') fill(x0 + c, -17 + r, 1, 1, col.num); x0 += 4; }
+  }
+}
+function drawFootball(ctx, sx, sy, z) {
+  const ox = Math.round(sx * 2) / 2, oy = Math.round((sy - z) * 2) / 2, R = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(ox + x * 0.5, oy + y * 0.5, w * 0.5, h * 0.5); };
+  ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(ox - 2, sy, 4, 1);
+  R(-5, -7, 10, 6, '#0e0804'); R(-4, -6, 8, 4, '#7a3f16'); R(-3, -6, 6, 1, '#a45a26'); R(-4, -3, 8, 1, '#552a0d'); R(-1, -5, 3, 1, '#fff'); R(-1, -4, 1, 1, '#fff'); R(1, -4, 1, 1, '#fff'); R(-4, -5, 1, 2, '#fff'); R(3, -5, 1, 2, '#fff');
 }
 function teamColors(team, alt) {
   const jersey = alt ? team.c2 : team.c1, other = alt ? team.c1 : team.c2;
-  return { jersey, helmet: shade(jersey, -25), pants: lum(other) > 200 ? '#e8e8e8' : (lum(other) < 40 ? '#2a2a2a' : other), mask: '#eee' };
+  const pants = lum(other) > 200 ? '#e8e8e8' : (lum(other) < 40 ? '#2a2a2a' : other);
+  return { jersey, helmet: shade(jersey, -25), pants, mask: '#e6e6e6', stripe: lum(other) > 215 ? '#cfcfcf' : other, num: lum(jersey) > 150 ? '#111' : '#fff', glove: other };
 }

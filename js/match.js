@@ -33,7 +33,7 @@ class Match {
     this.banner = null; this.log = []; this.pl = null; this.over = false; this.onEnd = null;
     this.cam = 0; this.time = 0; this.dwell = 0; this.pend = null; this.suddenOver = false;
     this.input = { dx: 0, dy: 0, act: false, throwIdx: -1 };
-    this.fgm = null; this.kick = null; this.notice = null; this.popups = [];
+    this.parts = []; this.fgm = null; this.kick = null; this.notice = null; this.popups = [];
     this.recv0 = Math.random() < 0.5 ? 'home' : 'away';
     this.crowd = []; for (let i = 0; i < 340; i++) this.crowd.push({ x: Math.random() * 760, y: 19 + Math.floor(Math.random() * 20), c: Math.random() < 0.45 ? home.c1 : Math.random() < 0.5 ? away.c1 : ['#c9c9c9', '#8a8a8a', '#d8c9a0', '#555'][ri(0, 3)] });
     for (const t of [home, away]) for (const p of t.roster) p.fat = 0;
@@ -266,6 +266,7 @@ class Match {
     for (const s of ['home', 'away']) { if (this.cheer[s] > 0) this.cheer[s] -= dt; }
     if (this.banner) { this.banner.time -= dt; if (this.banner.time <= 0) this.banner = null; }
     this.popups = this.popups.filter(p => (p.t -= dt) > 0);
+    this.parts = this.parts.filter(p => { p.t -= dt; p.x += p.vx * dt; p.y += (p.scr ? p.vy * dt : 0); if (p.scr) { p.vy += 60 * dt; } else { p.z += p.vz * dt; p.vz -= 40 * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.3; } } return p.t > 0; });
     if (this.notice) { this.notice.t -= dt; if (this.notice.t <= 0) this.notice = null; }
     if (this.phase === 'play') this.updatePlay(dt);
     else if (this.phase === 'dwell') { this.dwell -= dt; if (this.pl) this.moveAll(dt, true); if (this.dwell <= 0) this.afterDwell(); }
@@ -706,6 +707,8 @@ class Match {
         this.say(`${text} (${this.team[off].abbr})`);
       }
     }
+    if (r.k === 'tackle' || r.k === 'sack' || r.k === 'oob') for (let i = 0; i < 8; i++) this.parts.push({ x: r.x + rnd(-0.5, 0.5), y: clamp(r.y, 0, FH), z: 1, vx: rnd(-3, 3) / PX * 4, vz: rnd(6, 16), t: rnd(0.4, 0.8), c: '#b9a373', sz: 1.5, scr: false });
+    if (r.k === 'td') for (let i = 0; i < 70; i++) this.parts.push({ x: rnd(0, CW), y: rnd(20, 40), vx: rnd(-20, 20), vy: rnd(-20, 30), t: rnd(1.2, 2.6), c: [this.team[r.side].c1, this.team[r.side].c2, '#fff', '#ffd24d'][i % 4], sz: 2, scr: true });
     if (this.tod) { text = 'TURNOVER ON DOWNS'; col = '#ff6b6b'; this.tod = false; }
     // clock
     if (!stopClock) this.clock = Math.max(0, this.clock - 9);
@@ -731,28 +734,55 @@ class Match {
 }
 
 /* =============== Rendering =============== */
+Match.prototype.buildField = function () {
+  const S = 2, W = FW * PX * S, H = (FY1 - FY0) * S, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+  const yd = PX * S;
+  for (let k = 0; k < 24; k++) { g.fillStyle = k % 2 ? '#31833a' : '#2a7433'; g.fillRect(k * 5 * yd, 0, 5 * yd, H); }
+  for (let i = 0; i < 16000; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.07)'; g.fillRect(Math.random() * W, Math.random() * H, 1 + (Math.random() < 0.3), 1); }
+  for (let y = 0; y < H; y += 6) { g.fillStyle = 'rgba(0,0,0,.035)'; g.fillRect(0, y, W, 2); }
+  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(0,0,0,.22)'); gr.addColorStop(0.5, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(255,255,255,.07)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  const ez = (x0, tm, rot) => {
+    g.fillStyle = shade(tm.c1, -28); g.fillRect(x0 * yd, 0, 10 * yd, H);
+    g.fillStyle = 'rgba(255,255,255,.07)'; for (let i = -H; i < 10 * yd; i += 14) { g.beginPath(); g.moveTo(x0 * yd + i, H); g.lineTo(x0 * yd + i + H, 0); g.lineTo(x0 * yd + i + H + 6, 0); g.lineTo(x0 * yd + i + 6, H); g.fill(); }
+    g.save(); g.beginPath(); g.rect(x0 * yd, 0, 10 * yd, H); g.clip(); g.translate((x0 + 5) * yd, H / 2); g.rotate(rot); g.font = 'bold 34px "Courier New",monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 6; g.strokeStyle = shade(tm.c1, -70); g.strokeText(tm.name.toUpperCase().slice(0, 10), 0, 0); g.fillStyle = tm.c2; g.fillText(tm.name.toUpperCase().slice(0, 10), 0, 0); g.restore();
+  };
+  ez(0, this.team.home, -Math.PI / 2); ez(110, this.team.away, Math.PI / 2);
+  g.fillStyle = 'rgba(255,255,255,.88)';
+  for (let j = 0; j <= 20; j++) { const x = (10 + j * 5) * yd; g.fillRect(x - (j === 0 || j === 20 ? 2 : 1), 0, (j === 0 || j === 20) ? 5 : 2, H); }
+  g.fillStyle = 'rgba(255,255,255,.7)';
+  for (let x = 11; x < 110; x++) { if ((x - 10) % 5 === 0) continue; for (const yy of [10, 18]) { const py = yy / FH * H; g.fillRect(x * yd - 1, py - 4, 2, 5); } }
+  for (let x = 12; x < 110; x++) { if ((x - 10) % 5 === 0) continue; g.fillRect(x * yd - 1, 6, 2, 4); g.fillRect(x * yd - 1, H - 10, 2, 4); }
+  g.font = 'bold 22px "Courier New",monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = 'rgba(255,255,255,.62)';
+  for (let k = 1; k <= 9; k++) { const x = (10 + k * 10) * yd, n = String(10 * Math.min(k, 10 - k)); g.fillText(n, x + (k < 5 ? -18 : k > 5 ? 18 : 0), H - 22); g.save(); g.translate(x + (k < 5 ? 18 : k > 5 ? -18 : 0), 24); g.rotate(Math.PI); g.fillText(n, 0, 0); g.restore(); }
+  const h = this.team.home; g.beginPath(); g.arc(60 * yd, H / 2, 40, 0, 7); g.fillStyle = h.c1; g.fill(); g.lineWidth = 5; g.strokeStyle = h.c2; g.stroke();
+  g.fillStyle = h.c2; g.font = 'bold 26px "Courier New",monospace'; g.fillText(h.abbr, 60 * yd, H / 2 + 1);
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, 3); g.fillRect(0, H - 3, W, 3);
+  this.field = c;
+};
+Match.prototype.buildCrowd = function () {
+  const c = document.createElement('canvas'); c.width = 1520; c.height = 40; const g = c.getContext('2d');
+  g.fillStyle = '#171b2b'; g.fillRect(0, 0, 1520, 40);
+  const skins = SKINS, cols = [this.team.home.c1, this.team.away.c1, this.team.home.c2, '#c9c9c9', '#8a8a8a', '#d8c9a0', '#444', '#a33'];
+  for (let row = 0; row < 3; row++) { const yb = 4 + row * 9; g.fillStyle = row % 2 ? '#202640' : '#1b2036'; g.fillRect(0, yb + 5, 1520, 5);
+    for (let x = row * 3; x < 1520; x += 6 + Math.floor(Math.random() * 3)) { const col = cols[Math.floor(Math.random() * cols.length)];
+      g.fillStyle = col; g.fillRect(x, yb + 4, 5, 5); g.fillStyle = shade(col, -40); g.fillRect(x, yb + 7, 5, 2);
+      g.fillStyle = skins[Math.floor(Math.random() * 6)]; g.fillRect(x + 1, yb, 3, 3);
+      if (Math.random() < 0.3) { g.fillStyle = Math.random() < 0.5 ? '#2a1a10' : '#c9a24a'; g.fillRect(x + 1, yb - 1, 3, 1); } } }
+  for (let x = 0; x < 1520; x += 40) { g.fillStyle = (x / 40) % 2 ? this.team.home.c1 : this.team.away.c1; g.fillRect(x, 33, 40, 7); g.fillStyle = 'rgba(255,255,255,.85)'; g.font = 'bold 6px "Courier New",monospace'; g.fillText('PIXEL GRIDIRON', x + 2, 39); }
+  g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, 0, 1520, 40); g.fillStyle = 'rgba(0,0,0,.0)';
+  this.crowdC = c;
+};
 Match.prototype.draw = function (ctx) {
   const t = this.time, cam = this.cam, pl = this.pl, us = this.userSide;
   const x2s = x => x * PX - cam;
+  ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.imageSmoothingEnabled = false;
+  if (!this.field) { this.buildField(); this.buildCrowd(); }
   ctx.fillStyle = '#10131d'; ctx.fillRect(0, 0, CW, CH);
-  // stands
-  ctx.fillStyle = '#1b2033'; ctx.fillRect(0, 18, CW, FY0 - 18);
-  const bounce = (this.cheer.home > 0 || this.cheer.away > 0) ? Math.floor(Math.sin(t * 14) * 1.2) : 0;
-  for (const c of this.crowd) { const x = ((c.x - cam * 0.6) % 760 + 760) % 760 - 20; if (x < -2 || x > CW) continue; ctx.fillStyle = c.c; ctx.fillRect(Math.round(x), c.y + (c.x % 2 ? bounce : 0), 2, 3); }
-  ctx.fillStyle = '#2b3350'; ctx.fillRect(0, FY0 - 3, CW, 3);
-  // grass
-  for (let k = 0; k < 24; k++) { ctx.fillStyle = k % 2 ? '#2e7d32' : '#2a7330'; ctx.fillRect(Math.round(x2s(k * 5)), FY0, 5 * PX + 1, FY1 - FY0); }
-  // end zones
-  const ez = (x0, tm) => { ctx.fillStyle = shade(tm.c1, -35); ctx.fillRect(Math.round(x2s(x0)), FY0, 10 * PX, FY1 - FY0); ctx.save(); ctx.translate(Math.round(x2s(x0 + 5)), (FY0 + FY1) / 2); ctx.rotate(x0 < 60 ? -Math.PI / 2 : Math.PI / 2); ctx.fillStyle = tm.c2; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.fillText(tm.name.toUpperCase().slice(0, 9), 0, 5); ctx.restore(); };
-  ez(0, this.team.home); ez(110, this.team.away);
-  // lines
-  ctx.fillStyle = 'rgba(255,255,255,.75)';
-  for (let j = 0; j <= 20; j++) { const x = 10 + j * 5; const sx = Math.round(x2s(x)); if (sx < -2 || sx > CW + 2) continue; ctx.fillRect(sx, FY0, (j === 0 || j === 20) ? 2 : 1, FY1 - FY0); }
-  ctx.fillStyle = 'rgba(255,255,255,.55)';
-  for (let x = 11; x < 110; x++) { const sx = Math.round(x2s(x)); if (sx < 0 || sx > CW) continue; ctx.fillRect(sx, this.y2s(10), 1, 2); ctx.fillRect(sx, this.y2s(18), 1, 2); }
-  ctx.font = '8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.55)';
-  for (let k = 1; k <= 9; k++) { const x = 10 + k * 10; const sx = x2s(x); if (sx < -10 || sx > CW + 10) continue; const n = String(10 * Math.min(k, 10 - k)); ctx.fillText(n, sx, FY0 + 12); ctx.fillText(n, sx, FY1 - 5); }
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, FY0 - 1, CW, 1); ctx.fillRect(0, FY1, CW, 1);
+  const bounce = (this.cheer.home > 0 || this.cheer.away > 0) ? (Math.sin(t * 14) > 0 ? 0.5 : 0) : 0;
+  const cx0 = -((cam * 0.6) % 760);
+  ctx.drawImage(this.crowdC, Math.round(cx0 * 2) / 2, 19 + bounce, 760, 20); ctx.drawImage(this.crowdC, Math.round((cx0 + 760) * 2) / 2, 19 + bounce, 760, 20);
+  ctx.drawImage(this.field, Math.round(cam * 2), 0, CW * 2, (FY1 - FY0) * 2, 0, FY0, CW, FY1 - FY0);
   // LOS & first-down lines
   if (this.phase !== 'kick' && !this.over) {
     const bx = pl && (this.phase === 'play' || this.phase === 'dwell') ? pl.x0 : this.ballX;
@@ -777,9 +807,8 @@ Match.prototype.draw = function (ctx) {
     const sx = x2s(e.x); if (sx < -10 || sx > CW + 10) continue;
     const col = this.cols[e.side]; col.skin = SKINS[e.rp.skin] || SKINS[2];
     const moving = Math.hypot(e.vx, e.vy) > 0.6;
-    drawPlayerSprite(ctx, sx, this.y2s(e.y), e.face, col, t, moving, e.ph, e.down ? 'down' : '');
-    if (pl && pl.holder === e) { ctx.fillStyle = '#7a4a1d'; ctx.fillRect(Math.round(sx) + e.face * 4 - 1, Math.round(this.y2s(e.y)) - 7, 3, 2); }
-    if (e === pl.ctrl && this.phase === 'play') { ctx.fillStyle = '#ffe14a'; const yy = Math.round(this.y2s(e.y)) - 17 + (Math.floor(t * 6) % 2); ctx.fillRect(Math.round(sx) - 2, yy, 5, 1); ctx.fillRect(Math.round(sx) - 1, yy + 1, 3, 1); ctx.fillRect(Math.round(sx), yy + 2, 1, 1); }
+    drawPlayerSprite(ctx, sx, this.y2s(e.y), e.face, col, t, moving, e.ph, e.down ? 'down' : '', e.rp.num, !!(pl && pl.holder === e));
+    if (e === pl.ctrl && this.phase === 'play') { const yy = Math.round(this.y2s(e.y)) - 19 + (Math.floor(t * 6) % 2); ctx.fillStyle = '#000'; ctx.fillRect(sx - 3, yy - 0.5, 6, 2); ctx.fillStyle = '#ffe14a'; ctx.fillRect(sx - 2.5, yy, 5, 1); ctx.fillRect(sx - 1.5, yy + 1, 3, 1); ctx.fillRect(sx - 0.5, yy + 2, 1, 1); }
   }
   // receiver numbers for user passing
   if (pl && us === pl.off && this.phase === 'play' && pl.holder === pl.qb && !pl.ball) {
@@ -787,11 +816,12 @@ Match.prototype.draw = function (ctx) {
     pl.recs.forEach((e, i) => { if (e.blockRb) return; const sx = x2s(e.x), sy = this.y2s(e.y) - 15; ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(Math.round(sx) - 4, Math.round(sy) - 7, 9, 9); ctx.fillStyle = '#ffe14a'; ctx.fillText(String(i + 1), Math.round(sx), Math.round(sy)); });
   }
   // ball in air / kick
-  const drawBall = (bx, by, z) => { const sx = Math.round(x2s(bx)), sy = Math.round(this.y2s(by)); ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(sx - 1, sy, 3, 1); ctx.fillStyle = '#7a4a1d'; ctx.fillRect(sx - 2, sy - 3 - Math.round(z), 4, 2); ctx.fillStyle = '#fff'; ctx.fillRect(sx, sy - 3 - Math.round(z), 1, 1); };
+  const drawBall = (bx, by, z) => drawFootball(ctx, x2s(bx), this.y2s(by), z);
   if (pl && pl.ball) drawBall(pl.ball.x, pl.ball.y, pl.ball.z * 2);
   if (this.kick) { const k = this.kick, s = clamp(k.t / k.T, 0, 1); drawBall(k.fx + (k.tx - k.fx) * s, k.fy + (k.ty - k.fy) * s, Math.sin(Math.PI * s) * k.h * 0.5); }
   if (this.phase === 'presnap') { drawBall(this.ballX - dirOf(this.poss) * 4.5, this.ballY, 0); }
-  // goalposts during FG
+  for (const p of this.parts) { ctx.globalAlpha = clamp(p.t * 2, 0, 1); ctx.fillStyle = p.c; const px = p.scr ? p.x : p.x * PX - cam, py = p.scr ? p.y : this.y2s(p.y) - p.z; ctx.fillRect(px, py, p.sz, p.sz); }
+  ctx.globalAlpha = 1;
   // scoreboard
   ctx.fillStyle = 'rgba(0,0,0,.82)'; ctx.fillRect(0, 0, CW, 18);
   const hh = this.team.home, aa = this.team.away;
