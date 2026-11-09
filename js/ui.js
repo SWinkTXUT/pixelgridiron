@@ -68,7 +68,7 @@ function render() {
 function vTitle() {
   const ids = shuffle([...Array(32).keys()]).slice(0, 6);
   const has = LG && LG.user >= 0;
-  return `<div class="title"><h1>PIXEL<br>GRIDIRON</h1><div class="dim">Coach · GM · Legend</div>
+  return `<div class="title"><img src="icons/icon-192.png" width="96" height="96" style="image-rendering:pixelated;border:3px solid #000;box-shadow:4px 4px 0 #000"><h1>PIXEL<br>GRIDIRON</h1><div class="dim">Coach · GM · Legend</div>
   <div class="parade">${ids.map(i => `<img src="${mascotURL(LG.teams[i].mascot, 3, 0, false)}">`).join('')}</div>
   ${has ? `<button class="pri" data-a="go" data-v="hub">Continue career</button>` : ''}
   <button class="${has ? '' : 'pri'}" data-a="newCareer">New career</button>
